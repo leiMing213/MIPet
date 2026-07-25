@@ -1,0 +1,1 @@
+"""MiPet AI service package."""
