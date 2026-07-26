@@ -1,3 +1,6 @@
+import json
+from collections.abc import AsyncGenerator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -81,10 +84,41 @@ async def decision(pet_id: str, request: DecisionRequest):
 @app.post("/v1/pets/{pet_id}/chat/stream")
 async def chat_stream(pet_id: str, request: DecisionRequest):
     return StreamingResponse(
-        stream_chat(request),
+        persisted_chat_stream(pet_id, request),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def persisted_chat_stream(pet_id: str, request: DecisionRequest) -> AsyncGenerator[str, None]:
+    database.record_interaction(pet_id, request.event)
+    is_chat = request.event.type == "chat"
+    if is_chat and request.event.content:
+        database.add_message(pet_id, "user", request.event.content)
+
+    reply_parts: list[str] = []
+    assistant_saved = False
+    async for event in stream_chat(request):
+        if event.startswith("data: "):
+            try:
+                data = json.loads(event[6:])
+            except (json.JSONDecodeError, TypeError):
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+
+            token = data.get("token")
+            if isinstance(token, str) and token:
+                reply_parts.append(token)
+
+            if is_chat and data.get("done") and reply_parts and not assistant_saved:
+                database.add_message(pet_id, "assistant", "".join(reply_parts))
+                assistant_saved = True
+
+        yield event
+
+    if is_chat and reply_parts and not assistant_saved:
+        database.add_message(pet_id, "assistant", "".join(reply_parts))
 
 
 @app.post("/v1/pets/{pet_id}/agent/plan", response_model=DecisionResponse)
