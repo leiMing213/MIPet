@@ -46,7 +46,11 @@ function startBackend() {
   backendProcess = spawn(executable, args, {
     cwd: projectRoot,
     windowsHide: true,
-    stdio: 'ignore'
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      MIPET_DATA_DIR: app.getPath('userData')
+    }
   })
   backendProcess.once('error', error => {
     console.error('[MiPet] Failed to start AI backend:', error)
