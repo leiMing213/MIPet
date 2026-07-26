@@ -18,6 +18,8 @@ interface PetRig {
   legs: THREE.Group[]
   ears: THREE.Group[]
   eyes: THREE.Mesh[]
+  eyeHighlights: THREE.Mesh[]
+  eyeBaseScaleY: number
   tail: THREE.Group
   bowl: THREE.Group
 }
@@ -71,14 +73,17 @@ function createPet(species: Species, mbti: string, accent: string): PetRig {
   nose.position.set(0, -0.08, species === 'dog' ? 1.02 : 0.91)
 
   const eyes: THREE.Mesh[] = []
+  const eyeHighlights: THREE.Mesh[] = []
+  const eyeBaseScaleY = mbti[2] === 'F' ? 1.18 : 0.98
   for (const side of [-1, 1]) {
     const eye = addMesh(head, new THREE.SphereGeometry(0.105, 20, 14), dark)
-    eye.scale.set(0.78, mbti[2] === 'F' ? 1.18 : 0.98, 0.5)
+    eye.scale.set(0.78, eyeBaseScaleY, 0.5)
     eye.position.set(side * 0.28, 0.15, 0.69)
     eyes.push(eye)
 
     const shine = addMesh(head, new THREE.SphereGeometry(0.028, 12, 8), material('#ffffff', 0.25))
     shine.position.set(side * 0.255, 0.19, 0.775)
+    eyeHighlights.push(shine)
   }
 
   const ears: THREE.Group[] = []
@@ -139,10 +144,10 @@ function createPet(species: Species, mbti: string, accent: string): PetRig {
   const food = addMesh(bowl, new THREE.CylinderGeometry(0.34, 0.34, 0.08, 32), material('#8b5132', 0.95))
   food.position.y = 0.25
 
-  return { root, body, head, headCore, legs, ears, eyes, tail, bowl }
+  return { root, body, head, headCore, legs, ears, eyes, eyeHighlights, eyeBaseScaleY, tail, bowl }
 }
 
-function animateRig(rig: PetRig, action: ActionId, time: number, speed: number, gesture: number) {
+function animateRig(rig: PetRig, action: ActionId, time: number, speed: number, gesture: number, lookX: number, lookY: number) {
   const t = time * speed
   const blinkWave = Math.sin(t * 0.72) > 0.965 ? 0.08 : 1
 
@@ -156,7 +161,22 @@ function animateRig(rig: PetRig, action: ActionId, time: number, speed: number, 
   rig.bowl.visible = false
   rig.legs.forEach(leg => leg.rotation.set(0, 0, 0))
   rig.ears.forEach(ear => ear.rotation.set(0, 0, 0))
-  rig.eyes.forEach(eye => { eye.scale.y = blinkWave })
+  const lookStrength = action === 'eat' || action === 'pet' ? 0.18 : 1
+  rig.eyes.forEach((eye, index) => {
+    const side = index === 0 ? -1 : 1
+    eye.scale.y = rig.eyeBaseScaleY * blinkWave
+    eye.position.set(
+      side * 0.28 + lookX * 0.048 * lookStrength,
+      0.15 + lookY * 0.06 * lookStrength,
+      0.69
+    )
+    rig.eyeHighlights[index].position.set(
+      side * 0.255 + lookX * 0.048 * lookStrength,
+      0.19 + lookY * 0.06 * lookStrength,
+      0.775
+    )
+    rig.eyeHighlights[index].visible = blinkWave > 0.2
+  })
 
   if (action === 'idle') {
     rig.root.position.y += Math.sin(t * 1.4) * 0.035 * gesture
@@ -183,7 +203,8 @@ function animateRig(rig: PetRig, action: ActionId, time: number, speed: number, 
     rig.body.rotation.x = -0.08
     rig.legs[0].rotation.x = -0.16
     rig.legs[1].rotation.x = -0.16
-    rig.eyes.forEach(eye => { eye.scale.y = 0.22 })
+    rig.eyes.forEach(eye => { eye.scale.y = rig.eyeBaseScaleY * 0.22 })
+    rig.eyeHighlights.forEach(highlight => { highlight.visible = false })
     rig.tail.rotation.z = Math.sin(t * 1.8) * 0.16
   } else if (action === 'pet') {
     const happy = Math.sin(t * 5.8)
@@ -191,11 +212,15 @@ function animateRig(rig: PetRig, action: ActionId, time: number, speed: number, 
     rig.root.scale.set(1.03 + happy * 0.015, 0.97 - happy * 0.012, 1.03)
     rig.head.rotation.z = happy * 0.1 * gesture
     rig.head.position.y = 1.62
-    rig.eyes.forEach(eye => { eye.scale.y = 0.12 })
+    rig.eyes.forEach(eye => { eye.scale.y = rig.eyeBaseScaleY * 0.12 })
+    rig.eyeHighlights.forEach(highlight => { highlight.visible = false })
     rig.tail.rotation.z = Math.sin(t * 8.5) * 0.62 * gesture
     rig.ears[0].rotation.z = 0.12
     rig.ears[1].rotation.z = -0.12
   }
+
+  rig.head.rotation.y += lookX * 0.09 * lookStrength
+  rig.head.rotation.x += lookY * 0.055 * lookStrength
 }
 
 export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
@@ -246,6 +271,21 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
     scene.add(rig.root)
     const behavior = getMbtiBehavior(mbti)
     const clock = new THREE.Clock()
+    const targetLook = new THREE.Vector2()
+    const currentLook = new THREE.Vector2()
+
+    const updateLookTarget = (event: PointerEvent) => {
+      const bounds = visibleCanvas.getBoundingClientRect()
+      const centerX = bounds.left + bounds.width / 2
+      const centerY = bounds.top + bounds.height * 0.42
+      targetLook.set(
+        THREE.MathUtils.clamp((event.clientX - centerX) / Math.max(1, bounds.width * 0.42), -1, 1),
+        THREE.MathUtils.clamp((centerY - event.clientY) / Math.max(1, bounds.height * 0.42), -1, 1)
+      )
+    }
+    const resetLookTarget = () => targetLook.set(0, 0)
+    window.addEventListener('pointermove', updateLookTarget)
+    document.documentElement.addEventListener('pointerleave', resetLookTarget)
 
     const resize = () => {
       const width = Math.max(1, visibleCanvas.clientWidth)
@@ -262,7 +302,16 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
     resize()
 
     renderer.setAnimationLoop(() => {
-      animateRig(rig, actionRef.current, clock.getElapsedTime(), behavior.animationSpeed, behavior.gestureScale)
+      currentLook.lerp(targetLook, 0.14)
+      animateRig(
+        rig,
+        actionRef.current,
+        clock.getElapsedTime(),
+        behavior.animationSpeed,
+        behavior.gestureScale,
+        currentLook.x,
+        currentLook.y
+      )
       renderer.render(scene, camera)
       visibleContext.clearRect(0, 0, visibleCanvas.width, visibleCanvas.height)
       visibleContext.drawImage(renderer.domElement, 0, 0, visibleCanvas.width, visibleCanvas.height)
@@ -270,6 +319,8 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
 
     return () => {
       observer.disconnect()
+      window.removeEventListener('pointermove', updateLookTarget)
+      document.documentElement.removeEventListener('pointerleave', resetLookTarget)
       renderer.setAnimationLoop(null)
       scene.traverse(object => {
         if (object instanceof THREE.Mesh) {

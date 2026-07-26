@@ -6,7 +6,7 @@
 html.pet-mode,html.pet-mode body,html.pet-mode #root{width:100%;height:100%;min-width:0;overflow:hidden;background:transparent!important}
 .desktop-pet-stage{background:transparent!important;user-select:none;-webkit-user-select:none}
 .pet-panel-button{position:absolute;right:18px;top:78px;z-index:8;width:34px;height:28px;border:1px solid rgba(181,193,210,.7);border-radius:999px;background:rgba(255,255,255,.86);color:#60758e;box-shadow:0 7px 20px rgba(31,48,75,.13);cursor:pointer;opacity:0;transform:translateY(-4px);transition:.18s}
-.desktop-pet-stage:hover .pet-panel-button,.pet-panel-button:focus-visible{opacity:1;transform:translateY(0)}
+.desktop-pet-stage.is-hovered .pet-panel-button,.pet-panel-button:focus-visible{opacity:1;transform:translateY(0)}
 .desktop-bubble{top:20px;max-width:300px;max-height:180px;overflow-y:auto;animation:bubble-in .18s ease-out}
 .desktop-bubble{position:relative}
 .desktop-bubble.is-streaming{border-color:rgba(139,120,230,.5)}
@@ -22,13 +22,14 @@ html.pet-mode,html.pet-mode body,html.pet-mode #root{width:100%;height:100%;min-
 .desktop-pet-character .pet-glow{opacity:.11}
 .desktop-pet-character .pet-shadow{z-index:1}
 .desktop-pet-character .pet-name-tag{z-index:3}
-.pet-name-tag{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);padding:5px 9px;border:1px solid rgba(202,212,226,.74);border-radius:999px;background:rgba(255,255,255,.78);color:#64788e;font-size:10px;line-height:1;white-space:nowrap;box-shadow:0 5px 15px rgba(42,61,89,.1);opacity:.75;pointer-events:none}
+.pet-name-tag{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);padding:5px 9px;border:1px solid rgba(202,212,226,.74);border-radius:999px;background:rgba(255,255,255,.78);color:#64788e;font-size:10px;line-height:1;white-space:nowrap;box-shadow:0 5px 15px rgba(42,61,89,.1);opacity:0;pointer-events:none;transition:opacity .18s ease}
 .pet-command-dock{position:absolute;z-index:7;left:50%;bottom:35px;display:flex;gap:3px;padding:6px;transform:translate(-50%,8px);border:1px solid rgba(205,216,230,.82);border-radius:999px;background:rgba(255,255,255,.88);box-shadow:0 9px 24px rgba(37,55,83,.15);opacity:0;pointer-events:none;transition:.18s}
-.desktop-pet-stage:hover .pet-command-dock,.pet-command-dock.is-open{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+.desktop-pet-stage.is-hovered .pet-command-dock{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 .pet-command-dock button{border:0;border-radius:999px;background:transparent;color:#536b83;padding:6px 9px;font-size:11px;cursor:pointer}
 .pet-command-dock button:hover{background:#eeeaff;color:#6758c5}
 .desktop-chat-panel{bottom:75px;z-index:9}
 .desktop-pet-stats{bottom:12px;opacity:0;transition:.18s;pointer-events:none}
-.desktop-pet-stage:hover .desktop-pet-stats{opacity:1}
+.desktop-pet-stage.is-hovered .desktop-pet-stats{opacity:1}
+.desktop-pet-stage.is-hovered .pet-name-tag{opacity:.75}
 .desktop-pet-stage.is-dragging .pet-name-tag{opacity:1;background:rgba(239,235,255,.92);color:#6758c5}
 @keyframes bubble-in{from{opacity:0;transform:translate(-50%,5px) scale(.96)}to{opacity:1;transform:translate(-50%,0) scale(1)}}

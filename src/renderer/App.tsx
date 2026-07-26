@@ -313,9 +313,11 @@ function PetWindow() {
   const [controlsOpen, setControlsOpen] = useState(false)
   const [input, setInput] = useState('')
   const [isDragging, setIsDragging] = useState(false)
+  const [isPetHovered, setIsPetHovered] = useState(false)
   const dragOrigin = useRef({ x: 0, y: 0 })
   const dragDistance = useRef(0)
   const passthrough = useRef<boolean | null>(null)
+  const hoverLeaveTimer = useRef<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const messageTimer = useRef<number | null>(null)
   const actionTimer = useRef<number | null>(null)
@@ -326,18 +328,30 @@ function PetWindow() {
 
   useEffect(() => { stateRef.current = state }, [state])
 
-  const uiOpen = chatOpen || controlsOpen || isStreaming || Boolean(message)
+  const interactionActive = isPetHovered || isDragging
 
   useEffect(() => {
     document.documentElement.classList.add('pet-mode')
 
+    const scheduleHide = () => {
+      if (isDragging || hoverLeaveTimer.current) return
+      hoverLeaveTimer.current = window.setTimeout(() => {
+        setIsPetHovered(false)
+        setChatOpen(false)
+        setControlsOpen(false)
+        hoverLeaveTimer.current = null
+      }, 220)
+    }
     const updateMouseRegion = (event: PointerEvent) => {
-      if (uiOpen) return
       const target = event.target instanceof Element ? event.target : null
-      const isInteractive = Boolean(target?.closest('[data-pet-interactive="true"]'))
-      if (passthrough.current === !isInteractive) return
-      passthrough.current = !isInteractive
-      window.mipet.setMousePassthrough(!isInteractive)
+      const isHoverZone = Boolean(target?.closest('[data-pet-hover-zone="true"]'))
+      if (isHoverZone) {
+        if (hoverLeaveTimer.current) window.clearTimeout(hoverLeaveTimer.current)
+        hoverLeaveTimer.current = null
+        setIsPetHovered(true)
+        return
+      }
+      scheduleHide()
     }
     const releaseDrag = () => {
       window.mipet.endPetDrag()
@@ -348,6 +362,7 @@ function PetWindow() {
     document.addEventListener('pointerup', releaseDrag)
     document.addEventListener('pointercancel', releaseDrag)
     window.addEventListener('blur', releaseDrag)
+    document.documentElement.addEventListener('pointerleave', scheduleHide)
 
     return () => {
       document.documentElement.classList.remove('pet-mode')
@@ -355,19 +370,21 @@ function PetWindow() {
       document.removeEventListener('pointerup', releaseDrag)
       document.removeEventListener('pointercancel', releaseDrag)
       window.removeEventListener('blur', releaseDrag)
+      document.documentElement.removeEventListener('pointerleave', scheduleHide)
+      if (hoverLeaveTimer.current) window.clearTimeout(hoverLeaveTimer.current)
       window.mipet.endPetDrag()
     }
-  }, [uiOpen])
+  }, [isDragging])
 
   useEffect(() => {
-    if (uiOpen) {
+    if (interactionActive) {
       passthrough.current = false
       window.mipet.setMousePassthrough(false)
     } else {
       passthrough.current = true
       window.mipet.setMousePassthrough(true)
     }
-  }, [uiOpen])
+  }, [interactionActive])
 
   useEffect(() => window.mipet.onWalkFinished(() => {
     setState(current => {
@@ -648,9 +665,8 @@ function PetWindow() {
 
   return (
     <main
-      className={`pet-stage desktop-pet-stage action-${state.action} ${isDragging ? 'is-dragging' : ''}`}
+      className={`pet-stage desktop-pet-stage action-${state.action} ${isDragging ? 'is-dragging' : ''} ${isPetHovered ? 'is-hovered' : ''}`}
       style={{ '--pet-accent': mbti.accent } as React.CSSProperties}
-      data-pet-interactive={uiOpen ? 'true' : undefined}
       onContextMenu={event => {
         event.preventDefault()
         setControlsOpen(open => !open)
@@ -660,6 +676,7 @@ function PetWindow() {
         type="button"
         className="pet-panel-button"
         data-pet-interactive="true"
+        data-pet-hover-zone="true"
         onClick={() => window.mipet.openPanel()}
         aria-label="打开 MiPet 面板"
         title="打开 MiPet 面板"
@@ -667,12 +684,12 @@ function PetWindow() {
         •••
       </button>
 
-      {(message || isDragging) && (
-        <div className={`pet-bubble desktop-bubble ${isStreaming ? 'is-streaming' : ''}`} data-pet-interactive="true">
+      {(isPetHovered || isDragging) && (
+        <div className={`pet-bubble desktop-bubble ${isStreaming ? 'is-streaming' : ''}`} data-pet-interactive="true" data-pet-hover-zone="true">
           {!isDragging && !isStreaming && (
             <button type="button" className="bubble-close" onClick={() => setMessage('')} aria-label="关闭">&times;</button>
           )}
-          {isDragging ? '带我去哪里？' : message}
+          {isDragging ? '带我去哪里？' : message || `${stableProfile.name} 正看着你，要聊聊天吗？`}
           {isStreaming && <span className="streaming-cursor" />}
         </div>
       )}
@@ -680,6 +697,7 @@ function PetWindow() {
       <div
         className="pet-character desktop-pet-character"
         data-pet-interactive="true"
+        data-pet-hover-zone="true"
         onPointerDown={beginDrag}
         onPointerMove={trackDrag}
         onPointerUp={finishDrag}
@@ -697,6 +715,7 @@ function PetWindow() {
       <div
         className={`pet-command-dock ${controlsOpen || chatOpen ? 'is-open' : ''}`}
         data-pet-interactive="true"
+        data-pet-hover-zone="true"
       >
         <button type="button" onClick={() => setChatOpen(open => !open)}>聊天</button>
         <button type="button" onClick={feed}>喂食</button>
@@ -704,8 +723,8 @@ function PetWindow() {
         <button type="button" onClick={walk}>散步</button>
       </div>
 
-      {chatOpen && (
-        <form className="chat-panel desktop-chat-panel" data-pet-interactive="true" onSubmit={sendChat}>
+      {chatOpen && isPetHovered && (
+        <form className="chat-panel desktop-chat-panel" data-pet-interactive="true" data-pet-hover-zone="true" onSubmit={sendChat}>
           <input autoFocus value={input} onChange={event => setInput(event.target.value)} placeholder={`和 ${stableProfile.name} 说点什么……`} disabled={isStreaming} />
           <button type="submit" disabled={isStreaming}>{isStreaming ? '…' : '发送'}</button>
         </form>
