@@ -77,15 +77,6 @@ async def decision(pet_id: str, request: DecisionRequest):
     return result
 
 
-@app.post("/v1/pets/{pet_id}/chat/stream")
-async def chat_stream(pet_id: str, request: DecisionRequest):
-    return StreamingResponse(
-        stream_chat(request),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
 @app.post("/v1/pets/{pet_id}/agent/plan", response_model=DecisionResponse)
 async def agent_plan(pet_id: str, request: AgentPlanRequest):
     return await plan(request)

@@ -309,8 +309,6 @@ function registerIpc() {
     showPanel()
     return true
   })
-  ipcMain.handle('cursor:position', () => screen.getCursorScreenPoint())
-  ipcMain.handle('system:idle-time', () => powerMonitor.getSystemIdleTime())
   ipcMain.on('pet:mouse-passthrough', (event, passthrough: boolean) => {
     if (!petWindow || petWindow.isDestroyed() || event.sender !== petWindow.webContents) return
     petWindow.setIgnoreMouseEvents(Boolean(passthrough), { forward: true })
