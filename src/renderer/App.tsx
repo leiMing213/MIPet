@@ -1,5 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, Check, ExternalLink, ImagePlus, PawPrint, Sparkles } from 'lucide-react'
+import {
+  ArrowRight,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  Footprints,
+  Heart,
+  Home,
+  ImagePlus,
+  MessageCircle,
+  MonitorUp,
+  PawPrint,
+  Pencil,
+  Send,
+  ShowerHead,
+  Smile,
+  Sparkles,
+  Utensils,
+  UserRound
+} from 'lucide-react'
 import type { PetProfile, PetSnapshot, PetState, Species } from '../shared/types'
 import { personalities, type Personality } from './data/personalities'
 import { speciesMeta } from './data/pets'
@@ -8,6 +27,24 @@ import { Pet3D } from './Pet3D'
 
 const OWNER_MBTI_LINK = 'https://www.16personalities.com/ch'
 const API_BASE = 'http://127.0.0.1:8787'
+
+type DashboardView = 'home' | 'chat' | 'profile'
+type CareAction = 'pet' | 'feed' | 'clean' | 'walk'
+
+interface ChatRecord {
+  id: number | string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt?: string
+}
+
+interface GrowthRecord {
+  id: number
+  eventType: string
+  xpDelta: number
+  level: number
+  createdAt: string
+}
 
 const DEFAULT_PET_STATE: PetState = {
   hunger: 68,
@@ -90,21 +127,14 @@ async function loadLatestSnapshot(): Promise<PetSnapshot | null> {
 
 function App() {
   const mode = new URLSearchParams(window.location.search).get('mode')
-  return mode === 'pet' ? <PetWindow /> : <Onboarding />
+  return mode === 'pet' ? <PetWindow /> : <MainWindow />
 }
 
-function Onboarding() {
-  const existing = getProfile()
-  const [step, setStep] = useState(existing ? 5 : 1)
-  const [ownerName, setOwnerName] = useState(existing?.ownerName ?? '')
-  const [ownerMbti, setOwnerMbti] = useState(existing?.ownerMbti ?? '')
-  const [species, setSpecies] = useState<Species>(existing?.species ?? 'cat')
-  const [selected, setSelected] = useState<Personality>(personalities.find(p => p.type === existing?.mbti) ?? personalities[0])
-  const [appearanceMode, setAppearanceMode] = useState<'default' | 'custom'>(existing?.appearanceMode ?? 'default')
-  const [customImage, setCustomImage] = useState(existing?.customImage)
-  const [appearanceStatus, setAppearanceStatus] = useState('')
-  const [petName, setPetName] = useState(existing?.name ?? '')
-  const [ownerError, setOwnerError] = useState('')
+function MainWindow() {
+  const cachedProfile = getProfile()
+  const [profile, setProfile] = useState<PetProfile | null>(cachedProfile)
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -114,21 +144,334 @@ function Onboarding() {
       if (snapshot) {
         saveProfile(snapshot.profile)
         saveState(normalizePetState(snapshot.state))
-        if (!existing) {
-          window.location.reload()
-          return
-        }
-        void window.mipet.openPet(snapshot.profile)
-        return
+        setProfile(snapshot.profile)
+        if (window.mipet) void window.mipet.openPet(snapshot.profile)
+      } else if (cachedProfile) {
+        void saveSnapshot({ profile: cachedProfile, state: getState() }).catch(() => undefined)
+        if (window.mipet) void window.mipet.openPet(cachedProfile)
       }
-      if (existing) {
-        // First run after the database upgrade: migrate the old local cache into SQLite.
-        void saveSnapshot({ profile: existing, state: getState() }).catch(() => undefined)
-        void window.mipet.openPet(existing)
-      }
+      setLoading(false)
     })()
     return () => { cancelled = true }
   }, [])
+
+  if (loading) {
+    return <main className="panel-loading"><div className="loading-paw"><PawPrint size={24} /></div><span>正在打开 MiPet…</span></main>
+  }
+
+  if (!profile || editing) {
+    return (
+      <Onboarding
+        existing={editing ? profile : null}
+        onCancel={profile ? () => setEditing(false) : undefined}
+        onComplete={nextProfile => {
+          setProfile(nextProfile)
+          setEditing(false)
+        }}
+      />
+    )
+  }
+
+  return <Dashboard profile={profile} onEdit={() => setEditing(true)} onProfileUpdate={setProfile} />
+}
+
+function Dashboard({ profile, onEdit, onProfileUpdate }: {
+  profile: PetProfile
+  onEdit: () => void
+  onProfileUpdate: (profile: PetProfile) => void
+}) {
+  const [view, setView] = useState<DashboardView>('home')
+  const [state, setState] = useState<PetState>(getState)
+  const [messages, setMessages] = useState<ChatRecord[]>([])
+  const [growth, setGrowth] = useState<GrowthRecord[]>([])
+  const [input, setInput] = useState('')
+  const [isSending, setIsSending] = useState(false)
+  const [feedback, setFeedback] = useState('')
+  const [draftName, setDraftName] = useState(profile.name)
+  const [draftOwnerName, setDraftOwnerName] = useState(profile.ownerName)
+  const mbti = personalities.find(personality => personality.type === profile.mbti) ?? personalities[0]
+  const petEmoji = speciesMeta[profile.species].emoji
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const [snapshotResult, messagesResult, growthResult] = await Promise.allSettled([
+        fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}`).then(response => response.ok ? response.json() as Promise<PetSnapshot | null> : null),
+        fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/messages`).then(response => response.ok ? response.json() as Promise<ChatRecord[]> : []),
+        fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/growth`).then(response => response.ok ? response.json() as Promise<GrowthRecord[]> : [])
+      ])
+      if (cancelled) return
+      if (snapshotResult.status === 'fulfilled' && snapshotResult.value) {
+        const nextState = normalizePetState(snapshotResult.value.state)
+        saveState(nextState)
+        setState(nextState)
+      }
+      if (messagesResult.status === 'fulfilled') setMessages(messagesResult.value)
+      if (growthResult.status === 'fulfilled') setGrowth(growthResult.value)
+    })()
+    return () => { cancelled = true }
+  }, [profile.id])
+
+  useEffect(() => {
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === 'mipet:state' && event.newValue) {
+        try { setState(normalizePetState(JSON.parse(event.newValue) as PetState)) } catch { /* keep the current state */ }
+      }
+    }
+    window.addEventListener('storage', syncStorage)
+    return () => window.removeEventListener('storage', syncStorage)
+  }, [])
+
+  function flash(text: string) {
+    setFeedback(text)
+    window.setTimeout(() => setFeedback(''), 2200)
+  }
+
+  function care(action: CareAction) {
+    const labels: Record<CareAction, string> = {
+      pet: `${profile.name}舒服地眯起了眼睛`,
+      feed: `${profile.name}吃饱了，心情不错`,
+      clean: `${profile.name}现在干干净净的`,
+      walk: `${profile.name}准备去桌面散散步`
+    }
+    const current = getState()
+    const next: PetState = action === 'feed'
+      ? { ...current, hunger: Math.max(0, current.hunger - 18), mood: Math.min(100, current.mood + 4), affection: Math.min(100, current.affection + 2), action: 'eat' }
+      : action === 'clean'
+        ? { ...current, cleanliness: Math.min(100, current.cleanliness + 20), affection: Math.min(100, current.affection + 2), action: 'pet' }
+        : action === 'walk'
+          ? { ...current, mood: Math.min(100, current.mood + 2), action: 'walk' }
+          : { ...current, mood: Math.min(100, current.mood + 3), affection: Math.min(100, current.affection + 3), action: 'pet' }
+
+    saveState(next)
+    setState(next)
+    flash(labels[action])
+    if (action === 'walk' && window.mipet) {
+      const behavior = getMbtiBehavior(profile.mbti)
+      const [minDistance, maxDistance] = behavior.walkDistance
+      const [minDuration, maxDuration] = behavior.walkDuration
+      window.mipet.walkPet({
+        direction: Math.random() > 0.5 ? 1 : -1,
+        distance: minDistance + Math.random() * (maxDistance - minDistance),
+        duration: minDuration + Math.random() * (maxDuration - minDuration)
+      })
+    }
+    void persistPetState(profile.id, next, action).then(persisted => {
+      if (!persisted) return
+      const merged = { ...next, level: persisted.level, xp: persisted.xp, evolutionStage: persisted.evolutionStage }
+      saveState(merged)
+      setState(merged)
+      void fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/growth`)
+        .then(response => response.ok ? response.json() as Promise<GrowthRecord[]> : [])
+        .then(setGrowth)
+        .catch(() => undefined)
+    }).catch(() => flash('操作已经记录在本地，稍后会自动同步'))
+
+    window.setTimeout(() => {
+      const latest = getState()
+      if (latest.action !== next.action) return
+      const idle = { ...latest, action: 'idle' as const }
+      saveState(idle)
+      setState(idle)
+      void persistPetState(profile.id, idle).catch(() => undefined)
+    }, action === 'feed' ? 3400 : 2300)
+  }
+
+  async function sendDashboardChat(event: React.FormEvent) {
+    event.preventDefault()
+    const content = input.trim()
+    if (!content || isSending) return
+    const userMessage: ChatRecord = { id: `user-${Date.now()}`, role: 'user', content }
+    const assistantId = `assistant-${Date.now()}`
+    const recentMessages = messages.slice(-8).map(message => `${message.role}: ${message.content}`)
+    setInput('')
+    setMessages(current => [...current, userMessage])
+    setIsSending(true)
+
+    try {
+      const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          context: {
+            pet_id: profile.id,
+            pet_name: profile.name,
+            species: profile.species,
+            mbti: profile.mbti,
+            state,
+            recent_messages: recentMessages
+          },
+          event: { type: 'chat', content, metadata: {} }
+        })
+      })
+      if (!response.ok || !response.body) throw new Error('chat failed')
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let reply = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        const chunks = buffer.split('\n')
+        buffer = chunks.pop() ?? ''
+        for (const line of chunks) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6)) as { token?: string }
+            if (!data.token) continue
+            reply += data.token
+            setMessages(current => [
+              ...current.filter(message => message.id !== assistantId),
+              { id: assistantId, role: 'assistant', content: reply }
+            ])
+          } catch { /* ignore incomplete server events */ }
+        }
+        if (done) break
+      }
+      if (!reply) throw new Error('empty response')
+    } catch {
+      setMessages(current => [
+        ...current.filter(message => message.id !== assistantId),
+        { id: assistantId, role: 'assistant', content: '我听见啦。现在网络有点忙，等一下再陪你慢慢聊。' }
+      ])
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  async function saveProfileDetails() {
+    const nextProfile = {
+      ...profile,
+      name: draftName.trim() || profile.name,
+      ownerName: draftOwnerName.trim() || profile.ownerName
+    }
+    saveProfile(nextProfile)
+    onProfileUpdate(nextProfile)
+    try {
+      await saveSnapshot({ profile: nextProfile, state })
+      flash('档案已保存')
+    } catch {
+      flash('已保存在本机，服务恢复后会继续同步')
+    }
+  }
+
+  const pageTitle = view === 'home' ? '今天也一起待着吧' : view === 'chat' ? `和${profile.name}聊聊` : '宠物档案'
+  const growthLabels: Record<string, string> = { chat: '聊了一会儿', pet: '摸了摸它', feed: '喂了一顿', clean: '收拾干净', walk: '一起散步' }
+
+  return (
+    <main className="dashboard-shell">
+      <aside className="dashboard-sidebar">
+        <div className="dashboard-brand"><span><PawPrint size={19} /></span><strong>MiPet</strong></div>
+        <nav className="dashboard-nav" aria-label="管理页导航">
+          <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home size={18} />总览</button>
+          <button className={view === 'chat' ? 'active' : ''} onClick={() => setView('chat')}><MessageCircle size={18} />聊天</button>
+          <button className={view === 'profile' ? 'active' : ''} onClick={() => setView('profile')}><UserRound size={18} />宠物档案</button>
+        </nav>
+        <div className="sidebar-pet">
+          <span className="sidebar-avatar">{profile.customImage ? <img src={profile.customImage} alt="" /> : petEmoji}</span>
+          <div><strong>{profile.name}</strong><small><i />正在桌面陪你</small></div>
+        </div>
+      </aside>
+
+      <section className="dashboard-main">
+        <header className="dashboard-header">
+          <div><p>{profile.ownerName ? `${profile.ownerName}，` : ''}{pageTitle}</p><span>{view === 'home' ? '这里是你们共同生活的管理台。' : view === 'chat' ? '不用想好话题，随便说点什么就行。' : '名字和外形随时都可以调整。'}</span></div>
+          <button className="desktop-return-button" onClick={() => window.mipet.openPet(profile)}><MonitorUp size={17} />回到桌面</button>
+        </header>
+
+        {view === 'home' && (
+          <div className="dashboard-content home-dashboard">
+            <section className="pet-summary-card">
+              <div className="summary-copy"><span className="status-kicker">今日状态</span><h1>{state.mood >= 75 ? '心情很好，' : '安安静静，'}<br />正在等你。</h1><p>{feedback || `${profile.name}今天已经在桌面陪着你了。想起它的时候，过来摸摸就好。`}</p><button onClick={() => setView('chat')}>去说句话 <ChevronRight size={16} /></button></div>
+              <div className="summary-pet" style={{ '--pet-accent': mbti.accent } as React.CSSProperties}>
+                <div className="summary-pet-floor" />
+                {profile.customImage ? <img src={profile.customImage} alt={profile.name} /> : <span>{petEmoji}</span>}
+                <small>Lv.{state.level} · {mbti.name}</small>
+              </div>
+            </section>
+
+            <section className="state-card">
+              <div className="card-heading"><div><span>生活状态</span><small>照顾得很不错</small></div><Heart size={19} /></div>
+              <StatusRow label="饱腹" value={100 - state.hunger} tone="orange" />
+              <StatusRow label="清洁" value={state.cleanliness} tone="blue" />
+              <StatusRow label="心情" value={state.mood} tone="green" />
+              <StatusRow label="亲密" value={state.affection} tone="pink" />
+            </section>
+
+            <section className="care-card">
+              <div className="card-heading"><div><span>现在做点什么</span><small>操作会同步到桌面宠物</small></div></div>
+              <div className="care-actions">
+                <button data-testid="care-feed" onClick={() => care('feed')}><span className="care-icon food"><Utensils size={20} /></span><strong>喂食</strong><small>饥饿 -18</small></button>
+                <button data-testid="care-clean" onClick={() => care('clean')}><span className="care-icon clean"><ShowerHead size={20} /></span><strong>清洁</strong><small>清洁 +20</small></button>
+                <button data-testid="care-pet" onClick={() => care('pet')}><span className="care-icon pet"><Smile size={20} /></span><strong>摸摸</strong><small>亲密 +3</small></button>
+                <button data-testid="care-walk" onClick={() => care('walk')}><span className="care-icon walk"><Footprints size={20} /></span><strong>散步</strong><small>心情 +2</small></button>
+              </div>
+            </section>
+
+            <section className="growth-card">
+              <div className="card-heading"><div><span>最近的陪伴</span><small>每次互动都会留下痕迹</small></div><span className="level-chip">Lv.{state.level}</span></div>
+              <div className="growth-progress"><span style={{ width: `${Math.min(100, state.xp % 100)}%` }} /></div>
+              <div className="growth-list">
+                {growth.length > 0 ? growth.slice(0, 4).map(item => <div key={item.id}><i /><span>{growthLabels[item.eventType] ?? '陪伴了一会儿'}</span><small>+{item.xpDelta} XP</small></div>) : <p>从一次摸摸开始，留下你们的第一条记录。</p>}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {view === 'chat' && (
+          <div className="dashboard-content chat-dashboard">
+            <section className="conversation-card">
+              <div className="conversation-person"><span>{profile.customImage ? <img src={profile.customImage} alt="" /> : petEmoji}</span><div><strong>{profile.name}</strong><small>{profile.mbti} · {mbti.name}</small></div></div>
+              <div className="message-list">
+                {messages.length === 0 && <div className="empty-conversation"><MessageCircle size={27} /><strong>从一句简单的话开始</strong><span>它会记住你们慢慢聊过的事情。</span><div><button onClick={() => setInput('今天过得怎么样？')}>今天过得怎么样？</button><button onClick={() => setInput('陪我待一会儿')}>陪我待一会儿</button></div></div>}
+                {messages.map(message => <div key={message.id} className={`message-row ${message.role}`}><span>{message.content}</span></div>)}
+                {isSending && !messages.some(message => String(message.id).startsWith('assistant-')) && <div className="message-row assistant"><span className="typing-dots">•••</span></div>}
+              </div>
+              <form className="dashboard-chat-form" onSubmit={sendDashboardChat}><input value={input} onChange={event => setInput(event.target.value)} placeholder={`和${profile.name}说点什么…`} disabled={isSending} /><button type="submit" aria-label="发送" disabled={isSending || !input.trim()}><Send size={18} /></button></form>
+            </section>
+          </div>
+        )}
+
+        {view === 'profile' && (
+          <div className="dashboard-content profile-dashboard">
+            <section className="profile-card">
+              <div className="profile-portrait" style={{ '--pet-accent': mbti.accent } as React.CSSProperties}>{profile.customImage ? <img src={profile.customImage} alt={profile.name} /> : <span>{petEmoji}</span>}<small>{profile.species === 'cat' ? '猫咪' : '狗狗'} · {profile.mbti}</small></div>
+              <div className="profile-form">
+                <div className="card-heading"><div><span>基本信息</span><small>修改后会同步到桌面</small></div><Pencil size={18} /></div>
+                <label>宠物名字<input value={draftName} onChange={event => setDraftName(event.target.value)} /></label>
+                <label>怎么称呼你<input value={draftOwnerName} onChange={event => setDraftOwnerName(event.target.value)} /></label>
+                <div className="profile-facts"><div><span>性格</span><strong>{profile.mbti} · {mbti.name}</strong></div><div><span>相识于</span><strong>{new Date(profile.createdAt).toLocaleDateString('zh-CN')}</strong></div></div>
+                <button className="save-profile-button" onClick={saveProfileDetails}>保存修改</button>
+                <button className="edit-full-profile" onClick={onEdit}>重新选择物种、性格或形象 <ChevronRight size={16} /></button>
+              </div>
+            </section>
+          </div>
+        )}
+      </section>
+      {feedback && <div className="dashboard-toast">{feedback}</div>}
+    </main>
+  )
+}
+
+function StatusRow({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return <div className="status-row"><div><span>{label}</span><strong>{value}</strong></div><div className={`status-track ${tone}`}><span style={{ width: `${Math.max(0, Math.min(100, value))}%` }} /></div></div>
+}
+
+function Onboarding({ existing, onComplete, onCancel }: {
+  existing?: PetProfile | null
+  onComplete: (profile: PetProfile) => void
+  onCancel?: () => void
+}) {
+  const [step, setStep] = useState(existing ? 2 : 1)
+  const [ownerName, setOwnerName] = useState(existing?.ownerName ?? '')
+  const [ownerMbti, setOwnerMbti] = useState(existing?.ownerMbti ?? '')
+  const [species, setSpecies] = useState<Species>(existing?.species ?? 'cat')
+  const [selected, setSelected] = useState<Personality>(personalities.find(p => p.type === existing?.mbti) ?? personalities[0])
+  const [appearanceMode, setAppearanceMode] = useState<'default' | 'custom'>(existing?.appearanceMode ?? 'default')
+  const [customImage, setCustomImage] = useState(existing?.customImage)
+  const [appearanceStatus, setAppearanceStatus] = useState('')
+  const [petName, setPetName] = useState(existing?.name ?? '')
+  const [ownerError, setOwnerError] = useState('')
 
   const previewStyle = useMemo(() => ({ '--pet-accent': selected.accent } as React.CSSProperties), [selected.accent])
 
@@ -201,7 +544,7 @@ function Onboarding() {
 
   async function adopt() {
     const profile: PetProfile = {
-      id: crypto.randomUUID(),
+      id: existing?.id ?? crypto.randomUUID(),
       name: petName.trim() || `${selected.name}的小伙伴`,
       species,
       mbti: selected.type,
@@ -209,14 +552,15 @@ function Onboarding() {
       ownerMbti: ownerMbti || null,
       appearanceMode,
       customImage,
-      createdAt: new Date().toISOString()
+      createdAt: existing?.createdAt ?? new Date().toISOString()
     }
-    const state = { ...DEFAULT_PET_STATE }
+    const state = existing ? getState() : { ...DEFAULT_PET_STATE }
     saveProfile(profile)
     saveState(state)
     try {
       await saveSnapshot({ profile, state })
     } finally {
+      onComplete(profile)
       await window.mipet.openPet(profile)
     }
   }
@@ -227,7 +571,7 @@ function Onboarding() {
         <header className="brand-header">
           <div className="brand-mark"><PawPrint size={22} /></div>
           <div><div className="brand-name">MiPet</div><div className="brand-tagline">每只宠物都该有个灵魂</div></div>
-          <div className="header-badge"><Sparkles size={15} /> AI桌面宠物</div>
+          {onCancel ? <button className="onboarding-return" onClick={onCancel}>返回管理台</button> : <div className="header-badge"><Sparkles size={15} /> 桌面伙伴</div>}
         </header>
 
         <div className="progress-row">
@@ -305,7 +649,7 @@ function LegacyPetWindow() {
 }
 
 function PetWindow() {
-  const profile = getProfile()
+  const [profile, setProfile] = useState<PetProfile | null>(getProfile)
   const [state, setState] = useState<PetState>(getState)
   const [message, setMessage] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
@@ -327,6 +671,19 @@ function PetWindow() {
   const behavior = getMbtiBehavior(profile?.mbti)
 
   useEffect(() => { stateRef.current = state }, [state])
+
+  useEffect(() => {
+    const syncPanelChanges = (event: StorageEvent) => {
+      if (event.key === 'mipet:state' && event.newValue) {
+        try { setState(normalizePetState(JSON.parse(event.newValue) as PetState)) } catch { /* keep current state */ }
+      }
+      if (event.key === 'mipet:profile' && event.newValue) {
+        try { setProfile(JSON.parse(event.newValue) as PetProfile) } catch { /* keep current profile */ }
+      }
+    }
+    window.addEventListener('storage', syncPanelChanges)
+    return () => window.removeEventListener('storage', syncPanelChanges)
+  }, [])
 
   const interactionActive = isPetHovered || isDragging
 

@@ -322,7 +322,11 @@ function registerIpc() {
     if (petWindow && event.sender === petWindow.webContents) endPetDrag()
   })
   ipcMain.on('pet:walk', (event, options: PetWalkOptions) => {
-    if (petWindow && event.sender === petWindow.webContents) walkPet(options)
+    const sentByPet = Boolean(petWindow && event.sender === petWindow.webContents)
+    const sentByPanel = Boolean(mainWindow && event.sender === mainWindow.webContents)
+    if (!sentByPet && !sentByPanel) return
+    showPet()
+    walkPet(options)
   })
   ipcMain.handle('app:quit', () => {
     isQuitting = true
