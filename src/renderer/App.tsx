@@ -658,6 +658,7 @@ function PetWindow() {
   const [input, setInput] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [isPetHovered, setIsPetHovered] = useState(false)
+  const isDraggingRef = useRef(false)
   const dragOrigin = useRef({ x: 0, y: 0 })
   const dragDistance = useRef(0)
   const passthrough = useRef<boolean | null>(null)
@@ -691,7 +692,7 @@ function PetWindow() {
     document.documentElement.classList.add('pet-mode')
 
     const scheduleHide = () => {
-      if (isDragging || hoverLeaveTimer.current) return
+      if (isDraggingRef.current || hoverLeaveTimer.current) return
       hoverLeaveTimer.current = window.setTimeout(() => {
         setIsPetHovered(false)
         setChatOpen(false)
@@ -700,7 +701,8 @@ function PetWindow() {
       }, 220)
     }
     const updateMouseRegion = (event: PointerEvent) => {
-      const target = event.target instanceof Element ? event.target : null
+      const hitTarget = document.elementFromPoint(event.clientX, event.clientY)
+      const target = hitTarget ?? (event.target instanceof Element ? event.target : null)
       const isHoverZone = Boolean(target?.closest('[data-pet-hover-zone="true"]'))
       if (isHoverZone) {
         if (hoverLeaveTimer.current) window.clearTimeout(hoverLeaveTimer.current)
@@ -711,6 +713,8 @@ function PetWindow() {
       scheduleHide()
     }
     const releaseDrag = () => {
+      if (!isDraggingRef.current) return
+      isDraggingRef.current = false
       window.mipet.endPetDrag()
       setIsDragging(false)
     }
@@ -729,9 +733,12 @@ function PetWindow() {
       window.removeEventListener('blur', releaseDrag)
       document.documentElement.removeEventListener('pointerleave', scheduleHide)
       if (hoverLeaveTimer.current) window.clearTimeout(hoverLeaveTimer.current)
-      window.mipet.endPetDrag()
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false
+        window.mipet.endPetDrag()
+      }
     }
-  }, [isDragging])
+  }, [])
 
   useEffect(() => {
     if (interactionActive) {
@@ -887,13 +894,14 @@ function PetWindow() {
     event.preventDefault()
     dragOrigin.current = { x: event.screenX, y: event.screenY }
     dragDistance.current = 0
+    isDraggingRef.current = true
     setIsDragging(true)
     event.currentTarget.setPointerCapture(event.pointerId)
     window.mipet.beginPetDrag()
   }
 
   function trackDrag(event: React.PointerEvent<HTMLDivElement>) {
-    if (!isDragging) return
+    if (!isDraggingRef.current) return
     dragDistance.current = Math.max(
       dragDistance.current,
       Math.hypot(event.screenX - dragOrigin.current.x, event.screenY - dragOrigin.current.y)
@@ -901,10 +909,11 @@ function PetWindow() {
   }
 
   function finishDrag(event: React.PointerEvent<HTMLDivElement>) {
-    if (!isDragging) return
+    if (!isDraggingRef.current) return
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
+    isDraggingRef.current = false
     window.mipet.endPetDrag()
     setIsDragging(false)
   }
