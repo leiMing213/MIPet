@@ -18,13 +18,15 @@
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "three": "^0.185.1",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
     "@types/node": "^22.20.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.185.1",
+    "@vitejs/plugin-react": "^4.3.4",
     "electron": "^36.3.2",
     "electron-builder": "^26.0.12",
     "electron-vite": "^4.0.0",
@@ -34,14 +36,29 @@
   "build": {
     "appId": "com.mipet.desktop",
     "productName": "MiPet",
-    "directories": { "output": "release" },
-    "files": ["out/**/*", "package.json"],
-    "win": { "target": "nsis", "icon": "resources/mipet-icon.png" },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/mipet-icon.png"
+    },
     "extraResources": [
-      { "from": "resources/mipet-icon.png", "to": "mipet-icon.png" }
+      {
+        "from": "resources/mipet-icon.png",
+        "to": "mipet-icon.png"
+      }
     ]
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron", "esbuild", "electron-winstaller"]
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "electron-winstaller"
+    ]
   }
 }

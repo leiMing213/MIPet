@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { MipetBridge, PetProfile } from '../shared/types'
+import type { MipetBridge, PetProfile, PetWalkOptions } from '../shared/types'
 
 const bridge: MipetBridge = {
   openPet: (profile: PetProfile) => ipcRenderer.invoke('pet:open', profile),
@@ -8,7 +8,7 @@ const bridge: MipetBridge = {
   setMousePassthrough: (passthrough: boolean) => ipcRenderer.send('pet:mouse-passthrough', passthrough),
   beginPetDrag: () => ipcRenderer.send('pet:drag-start'),
   endPetDrag: () => ipcRenderer.send('pet:drag-end'),
-  walkPet: (direction: -1 | 1) => ipcRenderer.send('pet:walk', direction),
+  walkPet: (options: PetWalkOptions) => ipcRenderer.send('pet:walk', options),
   onWalkFinished: (callback: () => void) => {
     const listener = () => callback()
     ipcRenderer.on('pet:walk-finished', listener)

@@ -3,6 +3,8 @@ import { ArrowRight, Check, ExternalLink, ImagePlus, PawPrint, Sparkles } from '
 import type { PetProfile, PetSnapshot, PetState, Species } from '../shared/types'
 import { personalities, type Personality } from './data/personalities'
 import { speciesMeta } from './data/pets'
+import { getMbtiBehavior } from './data/mbtiBehaviors'
+import { Pet3D } from './Pet3D'
 
 const OWNER_MBTI_LINK = 'https://www.16personalities.com/ch'
 const API_BASE = 'http://127.0.0.1:8787'
@@ -262,9 +264,13 @@ function PetWindow() {
   const dragDistance = useRef(0)
   const passthrough = useRef<boolean | null>(null)
   const messageTimer = useRef<number | null>(null)
+  const actionTimer = useRef<number | null>(null)
+  const stateRef = useRef(state)
 
   const mbti = personalities.find(personality => personality.type === profile?.mbti) ?? personalities[0]
-  const petEmoji = profile?.species === 'dog' ? '🐶' : '🐱'
+  const behavior = getMbtiBehavior(profile?.mbti)
+
+  useEffect(() => { stateRef.current = state }, [state])
 
   useEffect(() => {
     document.documentElement.classList.add('pet-mode')
@@ -306,6 +312,64 @@ function PetWindow() {
     })
   }), [])
 
+  useEffect(() => {
+    if (!profile) return
+    let timeout = 0
+    let disposed = false
+
+    const schedule = () => {
+      const [minimum, maximum] = behavior.autonomousDelay
+      const delay = minimum + Math.random() * (maximum - minimum)
+      timeout = window.setTimeout(() => {
+        if (disposed) return
+        if (isDragging || chatOpen) {
+          schedule()
+          return
+        }
+
+        const current = stateRef.current
+        const roll = Math.random()
+        if (current.hunger >= 76) {
+          setMessage(`${profile.name} 看了看饭盆，又看了看你。`)
+          if (messageTimer.current) window.clearTimeout(messageTimer.current)
+          messageTimer.current = window.setTimeout(() => setMessage(''), 2800)
+        } else if (roll < behavior.walkChance) {
+          const [minDistance, maxDistance] = behavior.walkDistance
+          const [minDuration, maxDuration] = behavior.walkDuration
+          const next = { ...current, action: 'walk' as const }
+          setState(next)
+          saveState(next)
+          void persistPetState(profile.id, next, 'walk').catch(() => undefined)
+          window.mipet.walkPet({
+            direction: Math.random() > 0.5 ? 1 : -1,
+            distance: minDistance + Math.random() * (maxDistance - minDistance),
+            duration: minDuration + Math.random() * (maxDuration - minDuration)
+          })
+        } else if (roll < behavior.walkChance + behavior.attentionChance) {
+          const next = { ...current, action: 'pet' as const }
+          setState(next)
+          saveState(next)
+          setMessage(behavior.affection > 0.7 ? `${profile.name} 主动凑过来撒了个娇。` : `${profile.name} 抬头观察了你一会儿。`)
+          if (actionTimer.current) window.clearTimeout(actionTimer.current)
+          actionTimer.current = window.setTimeout(() => {
+            setState(latest => {
+              const idle = { ...latest, action: 'idle' as const }
+              stateRef.current = idle
+              saveState(idle)
+              return idle
+            })
+          }, 2400 / behavior.animationSpeed)
+        }
+        schedule()
+      }, delay)
+    }
+    schedule()
+    return () => {
+      disposed = true
+      window.clearTimeout(timeout)
+    }
+  }, [profile?.id, profile?.mbti, behavior, isDragging, chatOpen])
+
   if (!profile) return null
   const stableProfile = profile
 
@@ -331,6 +395,18 @@ function PetWindow() {
     setMessage(text)
     if (messageTimer.current) window.clearTimeout(messageTimer.current)
     messageTimer.current = window.setTimeout(() => setMessage(''), 2600)
+    if (actionTimer.current) window.clearTimeout(actionTimer.current)
+    if (action === 'eat' || action === 'pet') {
+      actionTimer.current = window.setTimeout(() => {
+        setState(current => {
+          const idle = { ...current, action: 'idle' as const }
+          stateRef.current = idle
+          saveState(idle)
+          void persistPetState(stableProfile.id, idle).catch(() => undefined)
+          return idle
+        })
+      }, action === 'eat' ? 3600 / behavior.animationSpeed : 2300 / behavior.animationSpeed)
+    }
   }
 
   function beginDrag(event: React.PointerEvent<HTMLDivElement>) {
@@ -388,7 +464,13 @@ function PetWindow() {
 
   function walk() {
     act('walk', `${stableProfile.name} 正在桌面上散步。`, {}, 'walk')
-    window.mipet.walkPet(Math.random() > 0.5 ? 1 : -1)
+    const [minDistance, maxDistance] = behavior.walkDistance
+    const [minDuration, maxDuration] = behavior.walkDuration
+    window.mipet.walkPet({
+      direction: Math.random() > 0.5 ? 1 : -1,
+      distance: minDistance + Math.random() * (maxDistance - minDistance),
+      duration: minDuration + Math.random() * (maxDuration - minDuration)
+    })
   }
 
   async function sendChat(event: React.FormEvent) {
@@ -460,11 +542,7 @@ function PetWindow() {
       >
         <div className="pet-shadow" />
         <div className="pet-glow" />
-        {stableProfile.customImage ? (
-          <img src={stableProfile.customImage} alt={stableProfile.name} className="pet-custom" draggable={false} />
-        ) : (
-          <div className="pet-emoji" aria-label={`${stableProfile.species} 临时形象`}>{petEmoji}</div>
-        )}
+        <Pet3D species={stableProfile.species} mbti={stableProfile.mbti} accent={mbti.accent} action={state.action} />
         <div className="pet-name-tag">{stableProfile.name} · {stableProfile.mbti}</div>
       </div>
 

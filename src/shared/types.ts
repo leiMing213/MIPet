@@ -30,6 +30,12 @@ export interface PetSnapshot {
   state: PetState
 }
 
+export interface PetWalkOptions {
+  direction: -1 | 1
+  distance: number
+  duration: number
+}
+
 export interface MipetBridge {
   openPet: (profile: PetProfile) => Promise<void>
   openPanel: () => Promise<void>
@@ -37,7 +43,7 @@ export interface MipetBridge {
   setMousePassthrough: (passthrough: boolean) => void
   beginPetDrag: () => void
   endPetDrag: () => void
-  walkPet: (direction: -1 | 1) => void
+  walkPet: (options: PetWalkOptions) => void
   onWalkFinished: (callback: () => void) => () => void
   quitApp: () => Promise<void>
 }

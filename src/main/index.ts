@@ -3,10 +3,13 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import type { PetWalkOptions } from '../shared/types'
 
-// Transparent layered windows can leave black DWM borders/trails on some Windows GPU drivers.
-// Software compositing is more predictable for this small desktop-pet surface.
-app.disableHardwareAcceleration()
+// Keep WebGL available for the 3D scene, but use Chromium's software window
+// compositor. Some Windows GPU/DWM combinations otherwise present a layered
+// transparent BrowserWindow as an opaque black rectangle.
+app.commandLine.appendSwitch('disable-gpu-compositing')
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
 
 const PET_WIDTH = 360
 const PET_HEIGHT = 380
@@ -135,12 +138,16 @@ function createMainWindow() {
     minHeight: 680,
     show: false,
     title: 'MiPet',
+    center: true,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false
     }
   })
+  mainWindow.setMenuBarVisibility(false)
 
   mainWindow.once('ready-to-show', () => mainWindow?.show())
   mainWindow.on('close', (event) => {
@@ -187,7 +194,8 @@ function createPetWindow() {
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false
     }
   })
 
@@ -241,14 +249,15 @@ function endPetDrag() {
   savePetPosition()
 }
 
-function walkPet(direction: -1 | 1 = 1) {
+function walkPet(options: PetWalkOptions) {
   if (!petWindow || petWindow.isDestroyed()) return
   stopPetMovement()
   const [startX, startY] = petWindow.getPosition()
-  const requestedDistance = direction * 160
+  const direction = options.direction === -1 ? -1 : 1
+  const requestedDistance = direction * Math.min(280, Math.max(60, options.distance || 160))
   const destination = clampPetPosition(startX + requestedDistance, startY)
   const distance = destination.x - startX
-  const duration = 900
+  const duration = Math.min(2400, Math.max(500, options.duration || 900))
   const startedAt = Date.now()
 
   walkTimer = setInterval(() => {
@@ -310,8 +319,8 @@ function registerIpc() {
   ipcMain.on('pet:drag-end', (event) => {
     if (petWindow && event.sender === petWindow.webContents) endPetDrag()
   })
-  ipcMain.on('pet:walk', (event, direction: -1 | 1) => {
-    if (petWindow && event.sender === petWindow.webContents) walkPet(direction === -1 ? -1 : 1)
+  ipcMain.on('pet:walk', (event, options: PetWalkOptions) => {
+    if (petWindow && event.sender === petWindow.webContents) walkPet(options)
   })
   ipcMain.handle('app:quit', () => {
     isQuitting = true
@@ -327,6 +336,7 @@ if (!hasSingleInstanceLock) app.quit()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.mipet.desktop')
+  Menu.setApplicationMenu(null)
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
   registerIpc()
   createTray()
