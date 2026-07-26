@@ -7,3 +7,4 @@ release
 *.log
 *.tsbuildinfo
 .idea/
+.venv/
