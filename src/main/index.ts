@@ -1,7 +1,12 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, screen, shell, Tray } from 'electron'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+
+// Transparent layered windows can leave black DWM borders/trails on some Windows GPU drivers.
+// Software compositing is more predictable for this small desktop-pet surface.
+app.disableHardwareAcceleration()
 
 const PET_WIDTH = 360
 const PET_HEIGHT = 380
@@ -19,6 +24,49 @@ let isQuitting = false
 let dragTimer: NodeJS.Timeout | null = null
 let walkTimer: NodeJS.Timeout | null = null
 let dragOffset = { x: 0, y: 0 }
+let backendProcess: ChildProcess | null = null
+
+function startBackend() {
+  if (backendProcess && backendProcess.exitCode === null) return
+
+  const projectRoot = app.getAppPath()
+  const executable = app.isPackaged
+    ? join(process.resourcesPath, 'server', 'mipet-server.exe')
+    : join(projectRoot, 'server', '.venv', 'Scripts', 'python.exe')
+
+  if (!existsSync(executable)) {
+    console.warn(`[MiPet] AI backend executable not found: ${executable}`)
+    return
+  }
+
+  const args = app.isPackaged
+    ? []
+    : ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8787', '--app-dir', 'server']
+
+  backendProcess = spawn(executable, args, {
+    cwd: projectRoot,
+    windowsHide: true,
+    stdio: 'ignore'
+  })
+  backendProcess.once('error', error => {
+    console.error('[MiPet] Failed to start AI backend:', error)
+    backendProcess = null
+  })
+  backendProcess.once('exit', () => { backendProcess = null })
+}
+
+function stopBackend() {
+  if (!backendProcess || backendProcess.exitCode !== null) return
+  if (process.platform === 'win32' && backendProcess.pid) {
+    spawn('taskkill', ['/pid', String(backendProcess.pid), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+  } else {
+    backendProcess.kill()
+  }
+  backendProcess = null
+}
 
 function petStatePath() {
   return join(app.getPath('userData'), 'pet-window.json')
@@ -126,6 +174,8 @@ function createPetWindow() {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    thickFrame: false,
+    roundedCorners: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
@@ -138,6 +188,7 @@ function createPetWindow() {
   })
 
   petWindow.setAlwaysOnTop(true, 'floating')
+  petWindow.setBackgroundColor('#00000000')
   petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   petWindow.setIgnoreMouseEvents(true, { forward: true })
   petWindow.on('closed', () => {
@@ -277,6 +328,7 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
   registerIpc()
   createTray()
+  startBackend()
   createMainWindow()
 
   screen.on('display-removed', () => {
@@ -294,6 +346,7 @@ app.on('before-quit', () => {
   isQuitting = true
   stopPetMovement()
   savePetPosition()
+  stopBackend()
 })
 
 // On Windows the app stays alive in the notification area when its windows are hidden.
