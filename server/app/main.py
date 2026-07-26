@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from app.schemas import AgentPlanRequest, AppearanceRequest, AppearanceResponse, DecisionRequest, DecisionResponse, InteractionEvent, MemoryItem
 from app.services.agent import plan
 from app.services.image_gateway import generate_pet_image, query_pet_image_task
 from app.services.memory import memory_service
-from app.services.model_gateway import decide
+from app.services.model_gateway import decide, stream_chat
 
 app = FastAPI(title="MiPet AI Service", version="0.1.0")
 app.add_middleware(
@@ -35,6 +36,15 @@ async def list_memories(pet_id: str):
 @app.post("/v1/pets/{pet_id}/decision", response_model=DecisionResponse)
 async def decision(pet_id: str, request: DecisionRequest):
     return await decide(request)
+
+
+@app.post("/v1/pets/{pet_id}/chat/stream")
+async def chat_stream(pet_id: str, request: DecisionRequest):
+    return StreamingResponse(
+        stream_chat(request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/v1/pets/{pet_id}/agent/plan", response_model=DecisionResponse)

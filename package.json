@@ -34,14 +34,34 @@
   "build": {
     "appId": "com.mipet.desktop",
     "productName": "MiPet",
-    "directories": { "output": "release" },
-    "files": ["out/**/*", "package.json"],
-    "win": { "target": "nsis", "icon": "resources/mipet-icon.png" },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/mipet-icon.png"
+    },
     "extraResources": [
-      { "from": "resources/mipet-icon.png", "to": "mipet-icon.png" }
+      {
+        "from": "resources/mipet-icon.png",
+        "to": "mipet-icon.png"
+      }
     ]
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["electron", "esbuild", "electron-winstaller"]
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "electron-winstaller"
+    ]
+  },
+  "allowScripts": {
+    "electron@36.9.5": true,
+    "esbuild@0.25.12": true,
+    "electron-winstaller@5.4.0": true
   }
 }

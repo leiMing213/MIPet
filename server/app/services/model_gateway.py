@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncGenerator
 
 import httpx
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,6 +43,27 @@ def local_fallback(request: DecisionRequest) -> DecisionResponse:
         next_trigger_seconds=1800,
         fallback=True,
     )
+
+
+def _build_chat_payload(request: DecisionRequest, stream: bool = False) -> tuple[str, dict, dict]:
+    context = request.context
+    event = request.event
+    system = (
+        f"你是一只桌面宠物，名字叫{context.pet_name}，物种是{context.species}，MBTI是{context.mbti}。"
+        "你说话风格简洁温暖，符合你的MBTI性格特征。直接用自然的中文回复用户的话，不要输出JSON，不要加任何格式标记。"
+    )
+    payload = {
+        "model": settings.mimo_model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": event.content or "你好"},
+        ],
+        "temperature": 0.8,
+        "stream": stream,
+    }
+    url = settings.mimo_base_url.rstrip("/") + "/chat/completions"
+    headers = {"Authorization": f"Bearer {settings.mimo_api_key}"}
+    return url, headers, payload
 
 
 async def decide(request: DecisionRequest) -> DecisionResponse:
@@ -88,3 +110,38 @@ async def decide(request: DecisionRequest) -> DecisionResponse:
         return result
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
         return local_fallback(request)
+
+
+async def stream_chat(request: DecisionRequest) -> AsyncGenerator[str, None]:
+    """Stream chat response as SSE events."""
+    if not settings.mimo_base_url or not settings.mimo_api_key:
+        fallback = local_fallback(request)
+        for char in fallback.dialogue:
+            yield f"data: {json.dumps({'token': char}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'done': True, 'animation': fallback.animation})}\n\n"
+        return
+
+    url, headers, payload = _build_chat_payload(request, stream=True)
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    chunk_str = line[6:]
+                    if chunk_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(chunk_str)
+                        delta = chunk["choices"][0].get("delta", {})
+                        token = delta.get("content", "")
+                        if token:
+                            yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
+        yield f"data: {json.dumps({'done': True, 'animation': 'idle'})}\n\n"
+    except (httpx.HTTPError, Exception):
+        fallback = local_fallback(request)
+        yield f"data: {json.dumps({'token': fallback.dialogue}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'done': True, 'animation': fallback.animation})}\n\n"

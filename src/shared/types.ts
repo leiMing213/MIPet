@@ -31,5 +31,7 @@ export interface MipetBridge {
   endPetDrag: () => void
   walkPet: (direction: -1 | 1) => void
   onWalkFinished: (callback: () => void) => () => void
+  getCursorPosition: () => Promise<{ x: number; y: number }>
+  getSystemIdleTime: () => Promise<number>
   quitApp: () => Promise<void>
 }

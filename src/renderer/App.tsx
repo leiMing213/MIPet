@@ -138,7 +138,7 @@ function Onboarding() {
           {['认识你', '选择物种', '选择人格', '生成形象', '领养'].map((label, index) => <div className={`progress-item ${step >= index + 1 ? 'active' : ''}`} key={label}><span>{index + 1}</span>{label}</div>)}
         </div>
 
-        {step === 1 && <section className="onboarding-grid"><div className="hero-copy"><div className="eyebrow">WELCOME TO MIPET</div><h1>先让它知道，<br /><em>应该怎么称呼你。</em></h1><p>你的宠物会记住这个名字。你的 MBTI 可以填写、跳转测试，也可以暂时跳过。</p><div className="hero-pet"><div className="hero-glow" /><div className="hero-emoji">🐈</div><div className="hero-caption">“我还不知道你，但我会慢慢认识你。”</div></div></div><div className="form-panel"><label>你的昵称</label><input className="text-input" placeholder="例如：小米同学" value={ownerName} onChange={e => setOwnerName(e.target.value)} autoFocus />{ownerError && <div className="error-text">{ownerError}</div>}<label className="spaced-label">你的 MBTI <span>可选</span></label><div className="owner-mbti-row"><input className="text-input" placeholder="例如：INFP" value={ownerMbti} onChange={e => setOwnerMbti(e.target.value.toUpperCase())} /><button className="link-button" onClick={() => window.mipet.openExternal(OWNER_MBTI_LINK)}><ExternalLink size={15} />去测试</button></div><button className="primary-button full" onClick={next}>开始领养 <ArrowRight size={17} /></button></div></section>}
+        {step === 1 && <section className="onboarding-grid"><div className="hero-copy"><div className="eyebrow">WELCOME TO MIPET</div><h1>先让它知道，<br /><em>应该怎么称呼你。</em></h1><p>你的宠物会记住这个名字。你的 MBTI 可以填写、跳转测试，也可以暂时跳过。</p><div className="hero-pet"><div className="hero-glow" /><div className="hero-emoji">🐈</div><div className="hero-caption">"我还不知道你，但我会慢慢认识你。"</div></div></div><div className="form-panel"><label>你的昵称</label><input className="text-input" placeholder="例如：小米同学" value={ownerName} onChange={e => setOwnerName(e.target.value)} autoFocus />{ownerError && <div className="error-text">{ownerError}</div>}<label className="spaced-label">你的 MBTI <span>可选</span></label><div className="owner-mbti-row"><input className="text-input" placeholder="例如：INFP" value={ownerMbti} onChange={e => setOwnerMbti(e.target.value.toUpperCase())} /><button className="link-button" onClick={() => window.mipet.openExternal(OWNER_MBTI_LINK)}><ExternalLink size={15} />去测试</button></div><button className="primary-button full" onClick={next}>开始领养 <ArrowRight size={17} /></button></div></section>}
 
         {step === 2 && <section className="selection-section"><div className="section-intro"><div className="eyebrow">STEP 02 / SPECIES</div><h2>你想和谁一起生活？</h2><p>先选择它的物种，之后你仍然可以为它定制独特的外貌。</p></div><div className="species-grid">{(Object.keys(speciesMeta) as Species[]).map(key => <button key={key} className={`species-card ${species === key ? 'selected' : ''}`} onClick={() => setSpecies(key)}><div className="species-emoji">{speciesMeta[key].emoji}</div><div className="species-label">{speciesMeta[key].label}</div><div className="species-subtitle">{speciesMeta[key].subtitle}</div>{species === key && <div className="selected-mark"><Check size={15} /></div>}</button>)}</div><FooterActions onBack={() => setStep(1)} onNext={next} /></section>}
 
@@ -200,7 +200,7 @@ function LegacyPetWindow() {
     } catch {
       const fallback = stableProfile.mbti === 'INFP'
         ? '我听到了。你可以慢慢说，我在这里。'
-        : `收到。关于“${content.slice(0, 18)}”，我们可以先从最重要的一步开始。`
+        : `收到。关于"${content.slice(0, 18)}"，我们可以先从最重要的一步开始。`
       act('idle', fallback)
     }
   }
@@ -218,6 +218,7 @@ function PetWindow() {
     }
   })
   const [message, setMessage] = useState('')
+  const [isStreaming, setIsStreaming] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [controlsOpen, setControlsOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -225,15 +226,18 @@ function PetWindow() {
   const dragOrigin = useRef({ x: 0, y: 0 })
   const dragDistance = useRef(0)
   const passthrough = useRef<boolean | null>(null)
-  const messageTimer = useRef<number | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const mbti = personalities.find(personality => personality.type === profile?.mbti) ?? personalities[0]
   const petEmoji = profile?.species === 'dog' ? '🐶' : '🐱'
+
+  const uiOpen = chatOpen || controlsOpen || isStreaming || Boolean(message)
 
   useEffect(() => {
     document.documentElement.classList.add('pet-mode')
 
     const updateMouseRegion = (event: PointerEvent) => {
+      if (uiOpen) return
       const target = event.target instanceof Element ? event.target : null
       const isInteractive = Boolean(target?.closest('[data-pet-interactive="true"]'))
       if (passthrough.current === !isInteractive) return
@@ -249,7 +253,6 @@ function PetWindow() {
     document.addEventListener('pointerup', releaseDrag)
     document.addEventListener('pointercancel', releaseDrag)
     window.addEventListener('blur', releaseDrag)
-    window.mipet.setMousePassthrough(true)
 
     return () => {
       document.documentElement.classList.remove('pet-mode')
@@ -259,7 +262,17 @@ function PetWindow() {
       window.removeEventListener('blur', releaseDrag)
       window.mipet.endPetDrag()
     }
-  }, [])
+  }, [uiOpen])
+
+  useEffect(() => {
+    if (uiOpen) {
+      passthrough.current = false
+      window.mipet.setMousePassthrough(false)
+    } else {
+      passthrough.current = true
+      window.mipet.setMousePassthrough(true)
+    }
+  }, [uiOpen])
 
   useEffect(() => window.mipet.onWalkFinished(() => {
     setState(current => {
@@ -268,6 +281,39 @@ function PetWindow() {
       return next
     })
   }), [])
+
+  useEffect(() => {
+    if (isStreaming || !message) return
+
+    const dismiss = () => {
+      setMessage('')
+      setState(current => {
+        const next = { ...current, action: 'idle' as const }
+        localStorage.setItem('mipet:state', JSON.stringify(next))
+        return next
+      })
+    }
+
+    let timerId = window.setTimeout(dismiss, 5000)
+
+    const resetTimer = () => {
+      window.clearTimeout(timerId)
+      timerId = window.setTimeout(dismiss, 5000)
+    }
+
+    document.addEventListener('wheel', resetTimer, { passive: true })
+    document.addEventListener('mousemove', resetTimer)
+    document.addEventListener('keydown', resetTimer)
+    document.addEventListener('pointerdown', resetTimer)
+
+    return () => {
+      window.clearTimeout(timerId)
+      document.removeEventListener('wheel', resetTimer)
+      document.removeEventListener('mousemove', resetTimer)
+      document.removeEventListener('keydown', resetTimer)
+      document.removeEventListener('pointerdown', resetTimer)
+    }
+  }, [isStreaming, message])
 
   if (!profile) return null
   const stableProfile = profile
@@ -279,8 +325,6 @@ function PetWindow() {
       return next
     })
     setMessage(text)
-    if (messageTimer.current) window.clearTimeout(messageTimer.current)
-    messageTimer.current = window.setTimeout(() => setMessage(''), 2600)
   }
 
   function beginDrag(event: React.PointerEvent<HTMLDivElement>) {
@@ -344,11 +388,22 @@ function PetWindow() {
   async function sendChat(event: React.FormEvent) {
     event.preventDefault()
     const content = input.trim()
-    if (!content) return
+    if (!content || isStreaming) return
     setInput('')
-    setMessage(`${stableProfile.name} 正在想怎么回答……`)
+    setMessage('')
+    setIsStreaming(true)
+    setState(current => {
+      const next = { ...current, action: 'pet' as const }
+      localStorage.setItem('mipet:state', JSON.stringify(next))
+      return next
+    })
+
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
-      const response = await fetch(`http://127.0.0.1:8787/v1/pets/${stableProfile.id}/decision`, {
+      const response = await fetch(`http://127.0.0.1:8787/v1/pets/${stableProfile.id}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -361,13 +416,46 @@ function PetWindow() {
             recent_messages: []
           },
           event: { type: 'chat', content, metadata: {} }
-        })
+        }),
+        signal: controller.signal
       })
-      if (!response.ok) throw new Error('chat request failed')
-      const result = await response.json() as { dialogue: string; animation: PetState['action'] }
-      act(result.animation ?? 'idle', result.dialogue)
-    } catch {
-      act('idle', `我听见啦。关于“${content.slice(0, 16)}”，等我陪你慢慢想。`)
+      if (!response.ok) throw new Error('stream request failed')
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('no reader')
+      const decoder = new TextDecoder()
+      let accumulated = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const text = decoder.decode(value, { stream: true })
+        const lines = text.split('\n')
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6)) as { token?: string; done?: boolean; animation?: string }
+            if (data.token) {
+              accumulated += data.token
+              setMessage(accumulated)
+            }
+            if (data.done) {
+              const anim = (data.animation ?? 'idle') as PetState['action']
+              setState(current => {
+                const next = { ...current, action: anim }
+                localStorage.setItem('mipet:state', JSON.stringify(next))
+                return next
+              })
+            }
+          } catch { /* skip malformed chunks */ }
+        }
+      }
+
+      setIsStreaming(false)
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return
+      setIsStreaming(false)
+      setMessage(`我听见啦。关于"${content.slice(0, 16)}"，等我陪你慢慢想。`)
     }
   }
 
@@ -375,6 +463,7 @@ function PetWindow() {
     <main
       className={`pet-stage desktop-pet-stage action-${state.action} ${isDragging ? 'is-dragging' : ''}`}
       style={{ '--pet-accent': mbti.accent } as React.CSSProperties}
+      data-pet-interactive={uiOpen ? 'true' : undefined}
       onContextMenu={event => {
         event.preventDefault()
         setControlsOpen(open => !open)
@@ -392,8 +481,12 @@ function PetWindow() {
       </button>
 
       {(message || isDragging) && (
-        <div className="pet-bubble desktop-bubble">
+        <div className={`pet-bubble desktop-bubble ${isStreaming ? 'is-streaming' : ''}`} data-pet-interactive="true">
+          {!isDragging && !isStreaming && (
+            <button type="button" className="bubble-close" onClick={() => setMessage('')} aria-label="关闭">&times;</button>
+          )}
           {isDragging ? '带我去哪里？' : message}
+          {isStreaming && <span className="streaming-cursor" />}
         </div>
       )}
 
@@ -430,8 +523,8 @@ function PetWindow() {
 
       {chatOpen && (
         <form className="chat-panel desktop-chat-panel" data-pet-interactive="true" onSubmit={sendChat}>
-          <input autoFocus value={input} onChange={event => setInput(event.target.value)} placeholder={`和 ${stableProfile.name} 说点什么……`} />
-          <button type="submit">发送</button>
+          <input autoFocus value={input} onChange={event => setInput(event.target.value)} placeholder={`和 ${stableProfile.name} 说点什么……`} disabled={isStreaming} />
+          <button type="submit" disabled={isStreaming}>{isStreaming ? '…' : '发送'}</button>
         </form>
       )}
 
