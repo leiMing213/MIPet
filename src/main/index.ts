@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, screen, shell, Tray } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -245,6 +245,8 @@ function registerIpc() {
     showPanel()
     return true
   })
+  ipcMain.handle('cursor:position', () => screen.getCursorScreenPoint())
+  ipcMain.handle('system:idle-time', () => powerMonitor.getSystemIdleTime())
   ipcMain.on('pet:mouse-passthrough', (event, passthrough: boolean) => {
     if (!petWindow || petWindow.isDestroyed() || event.sender !== petWindow.webContents) return
     petWindow.setIgnoreMouseEvents(Boolean(passthrough), { forward: true })

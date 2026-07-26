@@ -14,6 +14,8 @@ const bridge: MipetBridge = {
     ipcRenderer.on('pet:walk-finished', listener)
     return () => ipcRenderer.removeListener('pet:walk-finished', listener)
   },
+  getCursorPosition: () => ipcRenderer.invoke('cursor:position'),
+  getSystemIdleTime: () => ipcRenderer.invoke('system:idle-time'),
   quitApp: () => ipcRenderer.invoke('app:quit')
 }
 
