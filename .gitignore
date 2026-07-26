@@ -1,13 +1,43 @@
-node_modules
-out
-release
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+release/
+
+# Environment & secrets
 .env
 .env.*
 !.env.example
+server/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+server/.venv/
+
+# Logs
 *.log
+
+# TypeScript
 *.tsbuildinfo
+
+# IDE
 .idea/
 server/.venv/
 server/data/
 __pycache__/
 *.py[cod]
+
+.vscode/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lock files (project uses pnpm)
+package-lock.json
