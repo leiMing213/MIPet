@@ -36,7 +36,10 @@
     "productName": "MiPet",
     "directories": { "output": "release" },
     "files": ["out/**/*", "package.json"],
-    "win": { "target": "nsis", "icon": "resources/mipet-icon.png" }
+    "win": { "target": "nsis", "icon": "resources/mipet-icon.png" },
+    "extraResources": [
+      { "from": "resources/mipet-icon.png", "to": "mipet-icon.png" }
+    ]
   },
   "pnpm": {
     "onlyBuiltDependencies": ["electron", "esbuild", "electron-winstaller"]

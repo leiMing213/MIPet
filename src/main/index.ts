@@ -1,11 +1,81 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
+const PET_WIDTH = 360
+const PET_HEIGHT = 380
+const SCREEN_MARGIN = 12
+
+interface SavedPetWindowState {
+  x: number
+  y: number
+}
+
 let mainWindow: BrowserWindow | null = null
 let petWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
+let dragTimer: NodeJS.Timeout | null = null
+let walkTimer: NodeJS.Timeout | null = null
+let dragOffset = { x: 0, y: 0 }
+
+function petStatePath() {
+  return join(app.getPath('userData'), 'pet-window.json')
+}
+
+function readSavedPetPosition(): SavedPetWindowState | null {
+  try {
+    if (!existsSync(petStatePath())) return null
+    const saved = JSON.parse(readFileSync(petStatePath(), 'utf8')) as SavedPetWindowState
+    return Number.isFinite(saved.x) && Number.isFinite(saved.y) ? saved : null
+  } catch {
+    return null
+  }
+}
+
+function savePetPosition() {
+  if (!petWindow || petWindow.isDestroyed()) return
+  const [x, y] = petWindow.getPosition()
+  try {
+    writeFileSync(petStatePath(), JSON.stringify({ x, y } satisfies SavedPetWindowState), 'utf8')
+  } catch {
+    // The pet can keep running even if Windows temporarily denies the settings write.
+  }
+}
+
+function clampPetPosition(x: number, y: number) {
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(x + PET_WIDTH / 2),
+    y: Math.round(y + PET_HEIGHT / 2)
+  })
+  const area = display.workArea
+  return {
+    x: Math.min(Math.max(Math.round(x), area.x - SCREEN_MARGIN), area.x + area.width - PET_WIDTH + SCREEN_MARGIN),
+    y: Math.min(Math.max(Math.round(y), area.y - SCREEN_MARGIN), area.y + area.height - PET_HEIGHT + SCREEN_MARGIN)
+  }
+}
+
+function initialPetPosition() {
+  const saved = readSavedPetPosition()
+  if (saved) return clampPetPosition(saved.x, saved.y)
+  const area = screen.getPrimaryDisplay().workArea
+  return clampPetPosition(
+    area.x + area.width - PET_WIDTH - 28,
+    area.y + area.height - PET_HEIGHT - 18
+  )
+}
+
+function stopPetMovement() {
+  if (dragTimer) clearInterval(dragTimer)
+  if (walkTimer) clearInterval(walkTimer)
+  dragTimer = null
+  walkTimer = null
+}
 
 function createMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
+
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 820,
@@ -19,69 +89,210 @@ function createMainWindow() {
       sandbox: false
     }
   })
+
   mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('close', (event) => {
+    if (isQuitting) return
+    event.preventDefault()
+    mainWindow?.hide()
+  })
   mainWindow.on('closed', () => { mainWindow = null })
+
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+  return mainWindow
 }
 
 function createPetWindow() {
   if (petWindow && !petWindow.isDestroyed()) {
-    petWindow.show()
+    petWindow.showInactive()
     return petWindow
   }
+
+  const position = initialPetPosition()
   petWindow = new BrowserWindow({
-    width: 380,
-    height: 380,
+    x: position.x,
+    y: position.y,
+    width: PET_WIDTH,
+    height: PET_HEIGHT,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
+    show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       sandbox: false
     }
   })
+
   petWindow.setAlwaysOnTop(true, 'floating')
-  petWindow.on('closed', () => { petWindow = null })
+  petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  petWindow.setIgnoreMouseEvents(true, { forward: true })
+  petWindow.on('closed', () => {
+    stopPetMovement()
+    petWindow = null
+  })
+
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    petWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}?mode=pet`)
+    void petWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}?mode=pet`)
   } else {
-    petWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode: 'pet' } })
+    void petWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode: 'pet' } })
   }
+  petWindow.once('ready-to-show', () => petWindow?.showInactive())
   return petWindow
 }
+
+function showPet() {
+  const window = createPetWindow()
+  window.showInactive()
+}
+
+function showPanel() {
+  const window = createMainWindow()
+  window.show()
+  window.focus()
+}
+
+function beginPetDrag() {
+  if (!petWindow || petWindow.isDestroyed()) return
+  stopPetMovement()
+  const cursor = screen.getCursorScreenPoint()
+  const [windowX, windowY] = petWindow.getPosition()
+  dragOffset = { x: cursor.x - windowX, y: cursor.y - windowY }
+
+  dragTimer = setInterval(() => {
+    if (!petWindow || petWindow.isDestroyed()) return stopPetMovement()
+    const point = screen.getCursorScreenPoint()
+    const next = clampPetPosition(point.x - dragOffset.x, point.y - dragOffset.y)
+    petWindow.setPosition(next.x, next.y, false)
+  }, 16)
+}
+
+function endPetDrag() {
+  if (dragTimer) clearInterval(dragTimer)
+  dragTimer = null
+  savePetPosition()
+}
+
+function walkPet(direction: -1 | 1 = 1) {
+  if (!petWindow || petWindow.isDestroyed()) return
+  stopPetMovement()
+  const [startX, startY] = petWindow.getPosition()
+  const requestedDistance = direction * 160
+  const destination = clampPetPosition(startX + requestedDistance, startY)
+  const distance = destination.x - startX
+  const duration = 900
+  const startedAt = Date.now()
+
+  walkTimer = setInterval(() => {
+    if (!petWindow || petWindow.isDestroyed()) return stopPetMovement()
+    const progress = Math.min(1, (Date.now() - startedAt) / duration)
+    const eased = 1 - Math.pow(1 - progress, 3)
+    petWindow.setPosition(Math.round(startX + distance * eased), startY, false)
+    if (progress >= 1) {
+      if (walkTimer) clearInterval(walkTimer)
+      walkTimer = null
+      savePetPosition()
+      petWindow.webContents.send('pet:walk-finished')
+    }
+  }, 16)
+}
+
+function createTray() {
+  if (tray) return
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'mipet-icon.png')
+    : join(app.getAppPath(), 'resources', 'mipet-icon.png')
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: 20, height: 20 })
+  tray = new Tray(icon)
+  tray.setToolTip('MiPet 桌面宠物')
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示桌宠', click: showPet },
+    { label: '打开 MiPet 面板', click: showPanel },
+    { type: 'separator' },
+    {
+      label: '退出 MiPet',
+      click: () => {
+        isQuitting = true
+        stopPetMovement()
+        savePetPosition()
+        app.quit()
+      }
+    }
+  ]))
+  tray.on('double-click', showPet)
+}
+
+function registerIpc() {
+  ipcMain.handle('pet:open', () => {
+    showPet()
+    mainWindow?.hide()
+    return true
+  })
+  ipcMain.handle('panel:open', () => {
+    showPanel()
+    return true
+  })
+  ipcMain.on('pet:mouse-passthrough', (event, passthrough: boolean) => {
+    if (!petWindow || petWindow.isDestroyed() || event.sender !== petWindow.webContents) return
+    petWindow.setIgnoreMouseEvents(Boolean(passthrough), { forward: true })
+  })
+  ipcMain.on('pet:drag-start', (event) => {
+    if (petWindow && event.sender === petWindow.webContents) beginPetDrag()
+  })
+  ipcMain.on('pet:drag-end', (event) => {
+    if (petWindow && event.sender === petWindow.webContents) endPetDrag()
+  })
+  ipcMain.on('pet:walk', (event, direction: -1 | 1) => {
+    if (petWindow && event.sender === petWindow.webContents) walkPet(direction === -1 ? -1 : 1)
+  })
+  ipcMain.handle('app:quit', () => {
+    isQuitting = true
+    stopPetMovement()
+    savePetPosition()
+    app.quit()
+  })
+  ipcMain.handle('external:open', (_, url: string) => shell.openExternal(url))
+}
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) app.quit()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.mipet.desktop')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
-
-  ipcMain.handle('pet:open', (_, profile) => {
-    const window = createPetWindow()
-    mainWindow?.hide()
-    window.show()
-    return true
-  })
-
-  ipcMain.handle('panel:open', () => {
-    mainWindow?.show()
-    mainWindow?.focus()
-    petWindow?.hide()
-    return true
-  })
-
-  ipcMain.handle('external:open', (_, url: string) => shell.openExternal(url))
-
+  registerIpc()
+  createTray()
   createMainWindow()
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow() })
+
+  screen.on('display-removed', () => {
+    if (!petWindow || petWindow.isDestroyed()) return
+    const [x, y] = petWindow.getPosition()
+    const next = clampPetPosition(x, y)
+    petWindow.setPosition(next.x, next.y)
+    savePetPosition()
+  })
 })
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+app.on('second-instance', () => showPanel())
+app.on('activate', showPanel)
+app.on('before-quit', () => {
+  isQuitting = true
+  stopPetMovement()
+  savePetPosition()
 })
+
+// On Windows the app stays alive in the notification area when its windows are hidden.
+app.on('window-all-closed', () => undefined)

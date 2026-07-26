@@ -26,4 +26,10 @@ export interface MipetBridge {
   openPet: (profile: PetProfile) => Promise<void>
   openPanel: () => Promise<void>
   openExternal: (url: string) => Promise<void>
+  setMousePassthrough: (passthrough: boolean) => void
+  beginPetDrag: () => void
+  endPetDrag: () => void
+  walkPet: (direction: -1 | 1) => void
+  onWalkFinished: (callback: () => void) => () => void
+  quitApp: () => Promise<void>
 }

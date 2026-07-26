@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Check, ExternalLink, ImagePlus, PawPrint, Sparkles } from 'lucide-react'
 import type { PetProfile, PetState, Species } from '../shared/types'
 import { personalities, type Personality } from './data/personalities'
@@ -32,6 +32,12 @@ function Onboarding() {
   const [appearanceStatus, setAppearanceStatus] = useState('')
   const [petName, setPetName] = useState(existing?.name ?? '')
   const [ownerError, setOwnerError] = useState('')
+
+  useEffect(() => {
+    if (existing) void window.mipet.openPet(existing)
+    // Existing users should land directly on the desktop pet after restarting MiPet.
+    // The hidden panel remains available from the tray, double-click, or the ••• button.
+  }, [])
 
   const previewStyle = useMemo(() => ({ '--pet-accent': selected.accent } as React.CSSProperties), [selected.accent])
 
@@ -150,7 +156,7 @@ function FooterActions({ onBack, onNext }: { onBack: () => void; onNext: () => v
   return <div className="footer-actions"><button className="text-button" onClick={onBack}>返回</button><button className="primary-button" onClick={onNext}>继续 <ArrowRight size={17} /></button></div>
 }
 
-function PetWindow() {
+function LegacyPetWindow() {
   const profile = getProfile()
   const [state, setState] = useState<PetState>(() => JSON.parse(localStorage.getItem('mipet:state') ?? '{"hunger":68,"cleanliness":86,"mood":78,"affection":12,"action":"idle"}'))
   const [message, setMessage] = useState('')
@@ -200,6 +206,242 @@ function PetWindow() {
   }
 
   return <main className={`pet-stage action-${state.action}`} style={{ '--pet-accent': mbti.accent } as React.CSSProperties}><button className="pet-close" onClick={() => window.mipet.openPanel()} aria-label="打开控制面板">＋</button><div className="pet-bubble">{message || `${profile.name} · ${profile.mbti}`}</div><div className="pet-character" onDoubleClick={() => window.mipet.openPanel()} onClick={pet}><div className="pet-shadow" /><div className="pet-glow" />{profile.customImage ? <img src={profile.customImage} alt={profile.name} className="pet-custom" /> : <div className="pet-emoji">{petEmoji}</div>}</div>{chatOpen && <form className="chat-panel" onSubmit={sendChat}><input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder={`和${profile.name}说点什么…`} /><button type="submit">发送</button></form>}<div className="pet-actions"><button onClick={() => setChatOpen(v => !v)}>聊天</button><button onClick={feed}>喂食</button><button onClick={clean}>清理</button><button onClick={() => act('walk', `${profile.name}在桌面上走了一圈。`)}>走走</button></div><div className="pet-stats"><span>饥饿 {state.hunger}</span><span>清洁 {state.cleanliness}</span><span>亲密 {state.affection}</span></div></main>
+}
+
+function PetWindow() {
+  const profile = getProfile()
+  const [state, setState] = useState<PetState>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('mipet:state') ?? '') as PetState
+    } catch {
+      return { hunger: 68, cleanliness: 86, mood: 78, affection: 12, action: 'idle' }
+    }
+  })
+  const [message, setMessage] = useState('')
+  const [chatOpen, setChatOpen] = useState(false)
+  const [controlsOpen, setControlsOpen] = useState(false)
+  const [input, setInput] = useState('')
+  const [isDragging, setIsDragging] = useState(false)
+  const dragOrigin = useRef({ x: 0, y: 0 })
+  const dragDistance = useRef(0)
+  const passthrough = useRef<boolean | null>(null)
+  const messageTimer = useRef<number | null>(null)
+
+  const mbti = personalities.find(personality => personality.type === profile?.mbti) ?? personalities[0]
+  const petEmoji = profile?.species === 'dog' ? '🐶' : '🐱'
+
+  useEffect(() => {
+    document.documentElement.classList.add('pet-mode')
+
+    const updateMouseRegion = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      const isInteractive = Boolean(target?.closest('[data-pet-interactive="true"]'))
+      if (passthrough.current === !isInteractive) return
+      passthrough.current = !isInteractive
+      window.mipet.setMousePassthrough(!isInteractive)
+    }
+    const releaseDrag = () => {
+      window.mipet.endPetDrag()
+      setIsDragging(false)
+    }
+
+    document.addEventListener('pointermove', updateMouseRegion)
+    document.addEventListener('pointerup', releaseDrag)
+    document.addEventListener('pointercancel', releaseDrag)
+    window.addEventListener('blur', releaseDrag)
+    window.mipet.setMousePassthrough(true)
+
+    return () => {
+      document.documentElement.classList.remove('pet-mode')
+      document.removeEventListener('pointermove', updateMouseRegion)
+      document.removeEventListener('pointerup', releaseDrag)
+      document.removeEventListener('pointercancel', releaseDrag)
+      window.removeEventListener('blur', releaseDrag)
+      window.mipet.endPetDrag()
+    }
+  }, [])
+
+  useEffect(() => window.mipet.onWalkFinished(() => {
+    setState(current => {
+      const next = { ...current, action: 'idle' as const }
+      localStorage.setItem('mipet:state', JSON.stringify(next))
+      return next
+    })
+  }), [])
+
+  if (!profile) return null
+  const stableProfile = profile
+
+  function act(action: PetState['action'], text: string, delta: Partial<PetState> = {}) {
+    setState(current => {
+      const next = { ...current, ...delta, action }
+      localStorage.setItem('mipet:state', JSON.stringify(next))
+      return next
+    })
+    setMessage(text)
+    if (messageTimer.current) window.clearTimeout(messageTimer.current)
+    messageTimer.current = window.setTimeout(() => setMessage(''), 2600)
+  }
+
+  function beginDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    dragOrigin.current = { x: event.screenX, y: event.screenY }
+    dragDistance.current = 0
+    setIsDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    window.mipet.beginPetDrag()
+  }
+
+  function trackDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (!isDragging) return
+    dragDistance.current = Math.max(
+      dragDistance.current,
+      Math.hypot(event.screenX - dragOrigin.current.x, event.screenY - dragOrigin.current.y)
+    )
+  }
+
+  function finishDrag(event: React.PointerEvent<HTMLDivElement>) {
+    if (!isDragging) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    window.mipet.endPetDrag()
+    setIsDragging(false)
+  }
+
+  function pet() {
+    if (dragDistance.current > 6) {
+      dragDistance.current = 0
+      return
+    }
+    act('pet', `${stableProfile.name} 被摸得眯起了眼睛。`, {
+      mood: Math.min(100, state.mood + 3),
+      affection: Math.min(100, state.affection + 3)
+    })
+  }
+
+  function feed() {
+    act('eat', `${stableProfile.name} 认真吃完了这份心意。`, {
+      hunger: Math.max(0, state.hunger - 18),
+      mood: Math.min(100, state.mood + 4),
+      affection: Math.min(100, state.affection + 2)
+    })
+  }
+
+  function clean() {
+    act('pet', `${stableProfile.name} 又变得干干净净了。`, {
+      cleanliness: Math.min(100, state.cleanliness + 20),
+      affection: Math.min(100, state.affection + 2)
+    })
+  }
+
+  function walk() {
+    act('walk', `${stableProfile.name} 正在桌面上散步。`)
+    window.mipet.walkPet(Math.random() > 0.5 ? 1 : -1)
+  }
+
+  async function sendChat(event: React.FormEvent) {
+    event.preventDefault()
+    const content = input.trim()
+    if (!content) return
+    setInput('')
+    setMessage(`${stableProfile.name} 正在想怎么回答……`)
+    try {
+      const response = await fetch(`http://127.0.0.1:8787/v1/pets/${stableProfile.id}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          context: {
+            pet_id: stableProfile.id,
+            pet_name: stableProfile.name,
+            species: stableProfile.species,
+            mbti: stableProfile.mbti,
+            state,
+            recent_messages: []
+          },
+          event: { type: 'chat', content, metadata: {} }
+        })
+      })
+      if (!response.ok) throw new Error('chat request failed')
+      const result = await response.json() as { dialogue: string; animation: PetState['action'] }
+      act(result.animation ?? 'idle', result.dialogue)
+    } catch {
+      act('idle', `我听见啦。关于“${content.slice(0, 16)}”，等我陪你慢慢想。`)
+    }
+  }
+
+  return (
+    <main
+      className={`pet-stage desktop-pet-stage action-${state.action} ${isDragging ? 'is-dragging' : ''}`}
+      style={{ '--pet-accent': mbti.accent } as React.CSSProperties}
+      onContextMenu={event => {
+        event.preventDefault()
+        setControlsOpen(open => !open)
+      }}
+    >
+      <button
+        type="button"
+        className="pet-panel-button"
+        data-pet-interactive="true"
+        onClick={() => window.mipet.openPanel()}
+        aria-label="打开 MiPet 面板"
+        title="打开 MiPet 面板"
+      >
+        •••
+      </button>
+
+      {(message || isDragging) && (
+        <div className="pet-bubble desktop-bubble">
+          {isDragging ? '带我去哪里？' : message}
+        </div>
+      )}
+
+      <div
+        className="pet-character desktop-pet-character"
+        data-pet-interactive="true"
+        onPointerDown={beginDrag}
+        onPointerMove={trackDrag}
+        onPointerUp={finishDrag}
+        onPointerCancel={finishDrag}
+        onClick={pet}
+        onDoubleClick={() => window.mipet.openPanel()}
+        title="拖拽移动 · 单击抚摸 · 双击打开面板 · 右键互动"
+      >
+        <div className="pet-shadow" />
+        <div className="pet-glow" />
+        {stableProfile.customImage ? (
+          <img src={stableProfile.customImage} alt={stableProfile.name} className="pet-custom" draggable={false} />
+        ) : (
+          <div className="pet-emoji" aria-label={`${stableProfile.species} 临时形象`}>{petEmoji}</div>
+        )}
+        <div className="pet-name-tag">{stableProfile.name} · {stableProfile.mbti}</div>
+      </div>
+
+      <div
+        className={`pet-command-dock ${controlsOpen || chatOpen ? 'is-open' : ''}`}
+        data-pet-interactive="true"
+      >
+        <button type="button" onClick={() => setChatOpen(open => !open)}>聊天</button>
+        <button type="button" onClick={feed}>喂食</button>
+        <button type="button" onClick={clean}>清理</button>
+        <button type="button" onClick={walk}>散步</button>
+      </div>
+
+      {chatOpen && (
+        <form className="chat-panel desktop-chat-panel" data-pet-interactive="true" onSubmit={sendChat}>
+          <input autoFocus value={input} onChange={event => setInput(event.target.value)} placeholder={`和 ${stableProfile.name} 说点什么……`} />
+          <button type="submit">发送</button>
+        </form>
+      )}
+
+      <div className="pet-stats desktop-pet-stats">
+        <span>饥饿 {state.hunger}</span>
+        <span>清洁 {state.cleanliness}</span>
+        <span>亲密 {state.affection}</span>
+      </div>
+    </main>
+  )
 }
 
 export default App
