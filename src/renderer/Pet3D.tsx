@@ -274,18 +274,36 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
     const targetLook = new THREE.Vector2()
     const currentLook = new THREE.Vector2()
 
-    const updateLookTarget = (event: PointerEvent) => {
+    let cursorPollInFlight = false
+    const updateGlobalLookTarget = async () => {
+      if (cursorPollInFlight) return
+      cursorPollInFlight = true
+      try {
+        const point = await window.mipet.getCursorPosition()
+        const bounds = visibleCanvas.getBoundingClientRect()
+        const centerX = window.screenX + bounds.left + bounds.width / 2
+        const centerY = window.screenY + bounds.top + bounds.height * 0.42
+        targetLook.set(
+          THREE.MathUtils.clamp((point.x - centerX) / Math.max(1, bounds.width * 1.8), -1, 1),
+          THREE.MathUtils.clamp((centerY - point.y) / Math.max(1, bounds.height * 1.8), -1, 1)
+        )
+      } finally {
+        cursorPollInFlight = false
+      }
+    }
+    void updateGlobalLookTarget()
+    const cursorTimer = window.setInterval(() => void updateGlobalLookTarget(), 50)
+
+    const updateLocalLookTarget = (event: PointerEvent) => {
       const bounds = visibleCanvas.getBoundingClientRect()
       const centerX = bounds.left + bounds.width / 2
       const centerY = bounds.top + bounds.height * 0.42
       targetLook.set(
-        THREE.MathUtils.clamp((event.clientX - centerX) / Math.max(1, bounds.width * 0.42), -1, 1),
-        THREE.MathUtils.clamp((centerY - event.clientY) / Math.max(1, bounds.height * 0.42), -1, 1)
+        THREE.MathUtils.clamp((event.clientX - centerX) / Math.max(1, bounds.width * 1.8), -1, 1),
+        THREE.MathUtils.clamp((centerY - event.clientY) / Math.max(1, bounds.height * 1.8), -1, 1)
       )
     }
-    const resetLookTarget = () => targetLook.set(0, 0)
-    window.addEventListener('pointermove', updateLookTarget)
-    document.documentElement.addEventListener('pointerleave', resetLookTarget)
+    window.addEventListener('pointermove', updateLocalLookTarget)
 
     const resize = () => {
       const width = Math.max(1, visibleCanvas.clientWidth)
@@ -319,8 +337,8 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
 
     return () => {
       observer.disconnect()
-      window.removeEventListener('pointermove', updateLookTarget)
-      document.documentElement.removeEventListener('pointerleave', resetLookTarget)
+      window.clearInterval(cursorTimer)
+      window.removeEventListener('pointermove', updateLocalLookTarget)
       renderer.setAnimationLoop(null)
       scene.traverse(object => {
         if (object instanceof THREE.Mesh) {
