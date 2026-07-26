@@ -1,10 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Check, ExternalLink, ImagePlus, PawPrint, Sparkles } from 'lucide-react'
-import type { PetProfile, PetState, Species } from '../shared/types'
+import type { PetProfile, PetSnapshot, PetState, Species } from '../shared/types'
 import { personalities, type Personality } from './data/personalities'
 import { speciesMeta } from './data/pets'
 
 const OWNER_MBTI_LINK = 'https://www.16personalities.com/ch'
+const API_BASE = 'http://127.0.0.1:8787'
+
+const DEFAULT_PET_STATE: PetState = {
+  hunger: 68,
+  cleanliness: 86,
+  mood: 78,
+  affection: 12,
+  action: 'idle',
+  level: 1,
+  xp: 0,
+  evolutionStage: 1
+}
+
+function normalizePetState(state?: Partial<PetState> | null): PetState {
+  return { ...DEFAULT_PET_STATE, ...state }
+}
 
 function saveProfile(profile: PetProfile) {
   localStorage.setItem('mipet:profile', JSON.stringify(profile))
@@ -13,6 +29,61 @@ function saveProfile(profile: PetProfile) {
 function getProfile(): PetProfile | null {
   const raw = localStorage.getItem('mipet:profile')
   return raw ? JSON.parse(raw) as PetProfile : null
+}
+
+function saveState(state: PetState) {
+  localStorage.setItem('mipet:state', JSON.stringify(state))
+}
+
+function getState(): PetState {
+  try {
+    return normalizePetState(JSON.parse(localStorage.getItem('mipet:state') ?? ''))
+  } catch {
+    return { ...DEFAULT_PET_STATE }
+  }
+}
+
+async function saveSnapshot(snapshot: PetSnapshot) {
+  const response = await fetch(`${API_BASE}/v1/pets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(snapshot)
+  })
+  if (!response.ok) throw new Error(`save pet failed: ${response.status}`)
+}
+
+async function persistPetState(petId: string, state: PetState, eventType?: 'pet' | 'feed' | 'clean' | 'walk'): Promise<PetState | null> {
+  const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(petId)}/state`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state)
+  })
+  if (!response.ok) throw new Error(`save state failed: ${response.status}`)
+  if (eventType) {
+    const eventResponse = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(petId)}/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: eventType, metadata: {} })
+    })
+    if (eventResponse.ok) {
+      const result = await eventResponse.json() as { state?: PetState }
+      return result.state ? normalizePetState(result.state) : null
+    }
+  }
+  return null
+}
+
+async function loadLatestSnapshot(): Promise<PetSnapshot | null> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try {
+      const response = await fetch(`${API_BASE}/v1/pets/latest`)
+      if (response.ok) return await response.json() as PetSnapshot | null
+    } catch {
+      // The bundled backend may still be starting; retry briefly before using the local cache.
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 250))
+  }
+  return null
 }
 
 function App() {
@@ -34,9 +105,27 @@ function Onboarding() {
   const [ownerError, setOwnerError] = useState('')
 
   useEffect(() => {
-    if (existing) void window.mipet.openPet(existing)
-    // Existing users should land directly on the desktop pet after restarting MiPet.
-    // The hidden panel remains available from the tray, double-click, or the ••• button.
+    let cancelled = false
+    void (async () => {
+      const snapshot = await loadLatestSnapshot()
+      if (cancelled) return
+      if (snapshot) {
+        saveProfile(snapshot.profile)
+        saveState(normalizePetState(snapshot.state))
+        if (!existing) {
+          window.location.reload()
+          return
+        }
+        void window.mipet.openPet(snapshot.profile)
+        return
+      }
+      if (existing) {
+        // First run after the database upgrade: migrate the old local cache into SQLite.
+        void saveSnapshot({ profile: existing, state: getState() }).catch(() => undefined)
+        void window.mipet.openPet(existing)
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   const previewStyle = useMemo(() => ({ '--pet-accent': selected.accent } as React.CSSProperties), [selected.accent])
@@ -108,7 +197,7 @@ function Onboarding() {
     reader.readAsDataURL(file)
   }
 
-  function adopt() {
+  async function adopt() {
     const profile: PetProfile = {
       id: crypto.randomUUID(),
       name: petName.trim() || `${selected.name}的小伙伴`,
@@ -120,9 +209,14 @@ function Onboarding() {
       customImage,
       createdAt: new Date().toISOString()
     }
+    const state = { ...DEFAULT_PET_STATE }
     saveProfile(profile)
-    localStorage.setItem('mipet:state', JSON.stringify({ hunger: 68, cleanliness: 86, mood: 78, affection: 12, action: 'idle' } satisfies PetState))
-    window.mipet.openPet(profile)
+    saveState(state)
+    try {
+      await saveSnapshot({ profile, state })
+    } finally {
+      await window.mipet.openPet(profile)
+    }
   }
 
   return (
@@ -210,13 +304,7 @@ function LegacyPetWindow() {
 
 function PetWindow() {
   const profile = getProfile()
-  const [state, setState] = useState<PetState>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('mipet:state') ?? '') as PetState
-    } catch {
-      return { hunger: 68, cleanliness: 86, mood: 78, affection: 12, action: 'idle' }
-    }
-  })
+  const [state, setState] = useState<PetState>(getState)
   const [message, setMessage] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -277,7 +365,8 @@ function PetWindow() {
   useEffect(() => window.mipet.onWalkFinished(() => {
     setState(current => {
       const next = { ...current, action: 'idle' as const }
-      localStorage.setItem('mipet:state', JSON.stringify(next))
+      saveState(next)
+      if (profile) void persistPetState(profile.id, next).catch(() => undefined)
       return next
     })
   }), [])
@@ -318,10 +407,23 @@ function PetWindow() {
   if (!profile) return null
   const stableProfile = profile
 
-  function act(action: PetState['action'], text: string, delta: Partial<PetState> = {}) {
+  function act(action: PetState['action'], text: string, delta: Partial<PetState> = {}, eventType?: 'pet' | 'feed' | 'clean' | 'walk') {
     setState(current => {
       const next = { ...current, ...delta, action }
-      localStorage.setItem('mipet:state', JSON.stringify(next))
+      saveState(next)
+      void persistPetState(stableProfile.id, next, eventType).then(persisted => {
+        if (!persisted) return
+        setState(latest => {
+          const withGrowth = {
+            ...latest,
+            level: persisted.level,
+            xp: persisted.xp,
+            evolutionStage: persisted.evolutionStage
+          }
+          saveState(withGrowth)
+          return withGrowth
+        })
+      }).catch(() => undefined)
       return next
     })
     setMessage(text)
@@ -362,7 +464,7 @@ function PetWindow() {
     act('pet', `${stableProfile.name} 被摸得眯起了眼睛。`, {
       mood: Math.min(100, state.mood + 3),
       affection: Math.min(100, state.affection + 3)
-    })
+    }, 'pet')
   }
 
   function feed() {
@@ -370,18 +472,18 @@ function PetWindow() {
       hunger: Math.max(0, state.hunger - 18),
       mood: Math.min(100, state.mood + 4),
       affection: Math.min(100, state.affection + 2)
-    })
+    }, 'feed')
   }
 
   function clean() {
     act('pet', `${stableProfile.name} 又变得干干净净了。`, {
       cleanliness: Math.min(100, state.cleanliness + 20),
       affection: Math.min(100, state.affection + 2)
-    })
+    }, 'clean')
   }
 
   function walk() {
-    act('walk', `${stableProfile.name} 正在桌面上散步。`)
+    act('walk', `${stableProfile.name} 正在桌面上散步。`, {}, 'walk')
     window.mipet.walkPet(Math.random() > 0.5 ? 1 : -1)
   }
 

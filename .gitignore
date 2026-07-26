@@ -13,6 +13,7 @@ release/
 server/.env
 
 # Python
+server/data/
 __pycache__/
 *.pyc
 *.pyo

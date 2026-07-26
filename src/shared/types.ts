@@ -20,6 +20,14 @@ export interface PetState {
   mood: number
   affection: number
   action: ActionId
+  level: number
+  xp: number
+  evolutionStage: number
+}
+
+export interface PetSnapshot {
+  profile: PetProfile
+  state: PetState
 }
 
 export interface MipetBridge {
