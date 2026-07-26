@@ -156,58 +156,6 @@ function FooterActions({ onBack, onNext }: { onBack: () => void; onNext: () => v
   return <div className="footer-actions"><button className="text-button" onClick={onBack}>返回</button><button className="primary-button" onClick={onNext}>继续 <ArrowRight size={17} /></button></div>
 }
 
-function LegacyPetWindow() {
-  const profile = getProfile()
-  const [state, setState] = useState<PetState>(() => JSON.parse(localStorage.getItem('mipet:state') ?? '{"hunger":68,"cleanliness":86,"mood":78,"affection":12,"action":"idle"}'))
-  const [message, setMessage] = useState('')
-  const [chatOpen, setChatOpen] = useState(false)
-  const [input, setInput] = useState('')
-  const petEmoji = profile?.species === 'dog' ? '🐕' : '🐈'
-  const mbti = personalities.find(p => p.type === profile?.mbti) ?? personalities[0]
-  if (!profile) return null
-  const stableProfile = profile
-
-  function act(action: PetState['action'], text: string, delta: Partial<PetState> = {}) {
-    const next = { ...state, ...delta, action }
-    setState(next)
-    localStorage.setItem('mipet:state', JSON.stringify(next))
-    setMessage(text)
-    window.setTimeout(() => setMessage(''), 2600)
-  }
-
-  function feed() { act('eat', `${profile?.name}认真地吃完了这份心意。`, { hunger: Math.max(0, state.hunger - 18), mood: Math.min(100, state.mood + 4), affection: Math.min(100, state.affection + 2) }) }
-  function pet() { act('pet', `${profile?.name}被摸得眯起了眼睛。`, { mood: Math.min(100, state.mood + 3), affection: Math.min(100, state.affection + 3) }) }
-  function clean() { act('pet', `${profile?.name}假装刚才什么都没有发生。`, { cleanliness: Math.min(100, state.cleanliness + 20), affection: Math.min(100, state.affection + 2) }) }
-
-  async function sendChat(event: React.FormEvent) {
-    event.preventDefault()
-    const content = input.trim()
-    if (!content) return
-    setInput('')
-    setMessage(`${stableProfile.name}正在想怎么回答…`)
-    try {
-      const response = await fetch(`http://127.0.0.1:8787/v1/pets/${stableProfile.id}/decision`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          context: { pet_id: stableProfile.id, pet_name: stableProfile.name, species: stableProfile.species, mbti: stableProfile.mbti, state, recent_messages: [] },
-          event: { type: 'chat', content, metadata: {} }
-        })
-      })
-      if (!response.ok) throw new Error('chat request failed')
-      const result = await response.json() as { dialogue: string; animation: PetState['action'] }
-      act(result.animation ?? 'idle', result.dialogue)
-    } catch {
-      const fallback = stableProfile.mbti === 'INFP'
-        ? '我听到了。你可以慢慢说，我在这里。'
-        : `收到。关于“${content.slice(0, 18)}”，我们可以先从最重要的一步开始。`
-      act('idle', fallback)
-    }
-  }
-
-  return <main className={`pet-stage action-${state.action}`} style={{ '--pet-accent': mbti.accent } as React.CSSProperties}><button className="pet-close" onClick={() => window.mipet.openPanel()} aria-label="打开控制面板">＋</button><div className="pet-bubble">{message || `${profile.name} · ${profile.mbti}`}</div><div className="pet-character" onDoubleClick={() => window.mipet.openPanel()} onClick={pet}><div className="pet-shadow" /><div className="pet-glow" />{profile.customImage ? <img src={profile.customImage} alt={profile.name} className="pet-custom" /> : <div className="pet-emoji">{petEmoji}</div>}</div>{chatOpen && <form className="chat-panel" onSubmit={sendChat}><input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder={`和${profile.name}说点什么…`} /><button type="submit">发送</button></form>}<div className="pet-actions"><button onClick={() => setChatOpen(v => !v)}>聊天</button><button onClick={feed}>喂食</button><button onClick={clean}>清理</button><button onClick={() => act('walk', `${profile.name}在桌面上走了一圈。`)}>走走</button></div><div className="pet-stats"><span>饥饿 {state.hunger}</span><span>清洁 {state.cleanliness}</span><span>亲密 {state.affection}</span></div></main>
-}
-
 function PetWindow() {
   const profile = getProfile()
   const [state, setState] = useState<PetState>(() => {
@@ -364,8 +312,8 @@ function PetWindow() {
         })
       })
       if (!response.ok) throw new Error('chat request failed')
-      const result = await response.json() as { dialogue: string; animation: PetState['action'] }
-      act(result.animation ?? 'idle', result.dialogue)
+      const result = await response.json() as { dialogue: string; animation: PetState['action']; fallback?: boolean }
+      act(result.animation ?? 'idle', result.fallback ? `（离线回应）${result.dialogue}` : result.dialogue)
     } catch {
       act('idle', `我听见啦。关于“${content.slice(0, 16)}”，等我陪你慢慢想。`)
     }

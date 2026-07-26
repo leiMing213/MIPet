@@ -1,9 +1,13 @@
 import json
+import logging
 
 import httpx
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.schemas import DecisionRequest, DecisionResponse
+
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -86,5 +90,6 @@ async def decide(request: DecisionRequest) -> DecisionResponse:
         parsed = json.loads(content)
         result = DecisionResponse.model_validate({**local_fallback(request).model_dump(), **parsed, "fallback": False})
         return result
-    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.exception("MiPet model request failed; returning local fallback: %s", exc)
         return local_fallback(request)
