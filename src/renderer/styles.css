@@ -175,6 +175,19 @@ html.pet-mode,html.pet-mode body,html.pet-mode #root{width:100%;height:100%;min-
 .recommendation-list button>div{min-width:0}.recommendation-list button strong{font-size:12px}.recommendation-list button p{margin:4px 0 0;color:#748079;font-size:10px;line-height:1.55}
 .recommend-code{display:grid;place-items:center;height:34px;border-radius:7px;background:var(--recommend-soft);color:var(--recommend-color);font-size:11px;font-weight:900}
 .recommendation-list button>svg{color:var(--recommend-color)}
+.mbti-accordion{display:grid;gap:10px}
+.mbti-accordion-group{border:1px solid #dfe5e2;border-radius:12px;background:#f7f9f7;overflow:hidden}
+.mbti-accordion-group.open{box-shadow:0 8px 24px rgba(42,58,51,.06)}
+.mbti-accordion-header{width:100%;border:0;background:linear-gradient(90deg,color-mix(in srgb,var(--group-soft) 78%,#fff),#fff 72%);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 16px;cursor:pointer;text-align:left}
+.mbti-accordion-title{display:flex;align-items:center;gap:10px;min-width:0}
+.mbti-accordion-title i{width:12px;height:12px;border-radius:50%;background:var(--group-color);box-shadow:0 0 0 4px color-mix(in srgb,var(--group-soft) 72%,transparent)}
+.mbti-accordion-title strong{color:#23342d;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mbti-accordion-meta{display:flex;align-items:center;gap:9px;color:#7d8882;font-size:10px;font-weight:700}
+.mbti-accordion-header svg{color:var(--group-color);transition:transform .18s}
+.mbti-accordion-group.open .mbti-accordion-header svg{transform:rotate(90deg)}
+.personality-grid-compact{padding:0 14px 14px;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.personality-grid-compact .personality-card{border-radius:12px;padding:14px;min-height:0}
+.personality-grid-compact .personality-card p{min-height:0;margin:7px 0;font-size:11px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .mbti-group-legend{display:flex;align-items:center;gap:18px;margin:0 0 13px;color:#77827d;font-size:10px}.mbti-group-legend span{display:flex;align-items:center;gap:6px}.mbti-group-legend i{width:8px;height:8px;border-radius:50%}
 .recommend-tag{padding:4px 6px;border-radius:5px;background:color-mix(in srgb,var(--card-accent) 13%,#fff);color:var(--card-accent);font-size:9px;font-weight:800}
 .onboarding-3d-preview{overflow:hidden;background:color-mix(in srgb,var(--pet-accent) 7%,#f7f9f8)}
@@ -278,3 +291,4 @@ body{overflow:auto}
 @media (max-height:780px) and (min-width:981px){.brand-header{height:62px}.progress-row{padding-top:10px;padding-bottom:10px}.selection-section{padding-top:22px;padding-bottom:26px}.section-intro h2{font-size:26px}.section-intro p{margin-bottom:14px}.personality-card{padding:11px}.personality-card p{-webkit-line-clamp:1}.appearance-preview-stage{min-height:220px}.generated-pet.big{height:min(300px,40vh)}}
 @media (max-width:980px){.app-shell{display:block;padding:10px}.onboarding-shell{width:100%;height:auto;min-height:calc(100vh - 20px);max-height:none;overflow:visible}.onboarding-stage{overflow:visible}.onboarding-stage>.onboarding-grid,.onboarding-stage>.selection-section,.onboarding-stage>.adopt-section{min-height:0}.onboarding-grid,.adopt-section,.appearance-workspace{grid-template-columns:1fr}.personality-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.footer-actions{position:static;background:transparent}.appearance-workspace{min-height:0}.appearance-preview-stage{min-height:250px}}
 @media (max-width:620px){.brand-header{height:auto;min-height:62px}.progress-row{overflow:auto;flex-wrap:nowrap}.selection-section{padding:26px 18px}.section-intro h2{font-size:25px}.recommendation-list{grid-template-columns:1fr}.appearance-option-row,.appearance-upload-zone{grid-template-columns:38px minmax(0,1fr)}.appearance-option-row>svg,.uploaded-source-thumb,.upload-pick-label{grid-column:2}.personality-grid{grid-template-columns:1fr}.pet-test-backdrop{padding:12px}.pet-test-dialog{max-height:calc(100vh - 24px);overflow:auto}}
+@media (max-width:620px){.mbti-accordion-header{padding:13px 14px}.personality-grid-compact{grid-template-columns:1fr;padding:0 12px 12px}}

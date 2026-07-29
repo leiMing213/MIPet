@@ -27,7 +27,7 @@ import type { PetProfile, PetSnapshot, PetState, Species } from '../shared/types
 import { personalities, type Personality } from './data/personalities'
 import { speciesMeta } from './data/pets'
 import { getMbtiBehavior } from './data/mbtiBehaviors'
-import { getMbtiGroup, getPetRecommendations, MBTI_GROUPS, MBTI_TYPES, type MbtiType } from './data/mbti'
+import { getMbtiGroup, getPetRecommendations, MBTI_GROUPS, MBTI_TYPES, type MbtiGroupId, type MbtiType } from './data/mbti'
 import { calculatePetMbti, PET_MBTI_QUESTIONS, type PetMbtiResult, type TestAnswer } from './data/petMbtiTest'
 import { getMipetBridge } from './mipetBridge'
 import { Pet3D } from './Pet3D'
@@ -485,12 +485,23 @@ function Onboarding({ existing, onComplete, onCancel }: {
   const [testOpen, setTestOpen] = useState(false)
   const [petTestResult, setPetTestResult] = useState<string | null>(existing?.appearanceMode === 'custom' ? existing.mbti : null)
   const [ownerPickerOpen, setOwnerPickerOpen] = useState(false)
+  const [openMbtiGroup, setOpenMbtiGroup] = useState<MbtiGroupId | null>(() => getMbtiGroup(existing?.ownerMbti || existing?.mbti || 'INTJ').id)
 
   const selectedGroup = getMbtiGroup(selected.type)
   const previewStyle = useMemo(() => ({ '--pet-accent': selectedGroup.color } as React.CSSProperties), [selectedGroup.color])
   const recommendations = useMemo(() => getPetRecommendations(ownerMbti), [ownerMbti])
   const recommendedTypes = useMemo(() => new Set(recommendations.map(item => item.type)), [recommendations])
   const ownerMbtiPersonality = ownerMbti ? personalities.find(item => item.type === ownerMbti) : null
+
+  useEffect(() => {
+    if (!ownerMbti) return
+    setOpenMbtiGroup(getMbtiGroup(ownerMbti).id)
+  }, [ownerMbti])
+
+  function choosePersonality(personality: Personality) {
+    setSelected(personality)
+    setOpenMbtiGroup(getMbtiGroup(personality.type).id)
+  }
 
   function next() {
     if (step === 1 && !ownerName.trim()) {
@@ -571,7 +582,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
 
   function completePetTest(result: PetMbtiResult) {
     const personality = personalities.find(item => item.type === result.type) ?? personalities[0]
-    setSelected(personality)
+    choosePersonality(personality)
     setPetTestResult(result.type)
     setTestOpen(false)
     if (customImage) void requestAppearance(customImage, personality)
@@ -685,19 +696,57 @@ function Onboarding({ existing, onComplete, onCancel }: {
                   {recommendations.map(recommendation => {
                     const personality = personalities.find(item => item.type === recommendation.type) ?? personalities[0]
                     const group = getMbtiGroup(personality.type)
-                    return <button key={recommendation.type} className={selected.type === recommendation.type ? 'selected' : ''} style={{ '--recommend-color': group.color, '--recommend-soft': group.softColor } as React.CSSProperties} onClick={() => setSelected(personality)}><span className="recommend-code">{recommendation.type}</span><div><strong>{personality.name}</strong><p>{recommendation.reason}</p></div><ChevronRight size={17} /></button>
+                    return <button key={recommendation.type} className={selected.type === recommendation.type ? 'selected' : ''} style={{ '--recommend-color': group.color, '--recommend-soft': group.softColor } as React.CSSProperties} onClick={() => choosePersonality(personality)}><span className="recommend-code">{recommendation.type}</span><div><strong>{personality.name}</strong><p>{recommendation.reason}</p></div><ChevronRight size={17} /></button>
                   })}
                 </div>
               </section>
             )}
-            <div className="mbti-group-legend">
-              {Object.values(MBTI_GROUPS).map(group => <span key={group.id}><i style={{ background: group.color }} />{group.name}</span>)}
-            </div>
-            <div className="personality-grid">
-              {personalities.map(personality => {
-                const group = getMbtiGroup(personality.type)
-                const isRecommended = recommendedTypes.has(personality.type as MbtiType)
-                return <button key={personality.type} className={`personality-card ${selected.type === personality.type ? 'selected' : ''}`} style={{ '--card-accent': group.color } as React.CSSProperties} onClick={() => setSelected(personality)}><div className="personality-top"><span className="type-code">{personality.type}</span><span className={isRecommended ? 'recommend-tag' : 'card-pet'}>{isRecommended ? '推荐' : speciesMeta[species].emoji}</span></div><strong>{personality.name}</strong><p>{personality.description}</p><div className="keyword-row">{personality.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div></button>
+            <div className="mbti-accordion">
+              {Object.values(MBTI_GROUPS).map(group => {
+                const groupPersonalities = personalities.filter(personality => getMbtiGroup(personality.type).id === group.id)
+                const isOpen = openMbtiGroup === group.id
+                return (
+                  <section key={group.id} className={`mbti-accordion-group ${isOpen ? 'open' : ''}`} style={{ '--group-color': group.color, '--group-soft': group.softColor } as React.CSSProperties}>
+                    <button
+                      type="button"
+                      className="mbti-accordion-header"
+                      onClick={() => setOpenMbtiGroup(current => current === group.id ? null : group.id)}
+                      aria-expanded={isOpen}
+                    >
+                      <span className="mbti-accordion-title">
+                        <i />
+                        <strong>{group.name}</strong>
+                      </span>
+                      <span className="mbti-accordion-meta">
+                        <small>{groupPersonalities.length} 型</small>
+                        <ChevronRight size={16} />
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="personality-grid personality-grid-compact">
+                        {groupPersonalities.map(personality => {
+                          const isRecommended = recommendedTypes.has(personality.type as MbtiType)
+                          return (
+                            <button
+                              key={personality.type}
+                              className={`personality-card ${selected.type === personality.type ? 'selected' : ''}`}
+                              style={{ '--card-accent': group.color } as React.CSSProperties}
+                              onClick={() => choosePersonality(personality)}
+                            >
+                              <div className="personality-top">
+                                <span className="type-code">{personality.type}</span>
+                                <span className={isRecommended ? 'recommend-tag' : 'card-pet'}>{isRecommended ? '推荐' : speciesMeta[species].emoji}</span>
+                              </div>
+                              <strong>{personality.name}</strong>
+                              <p>{personality.description}</p>
+                              <div className="keyword-row">{personality.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )
               })}
             </div>
             <FooterActions onBack={() => setStep(2)} onNext={next} />
