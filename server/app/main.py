@@ -1,16 +1,21 @@
 import json
+import logging
 from collections.abc import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from app.agno.registry import get_or_create_agent
+from app.agno.streaming import agent_stream_to_sse
 from app.database import database
 from app.schemas import AgentPlanRequest, AppearanceRequest, AppearanceResponse, ChatMessage, DecisionRequest, DecisionResponse, GrowthRecord, InteractionEvent, InteractionResult, MemoryItem, PetSnapshot, PetState
 from app.services.agent import plan
 from app.services.image_gateway import generate_pet_image, query_pet_image_task
 from app.services.memory import memory_service
-from app.services.model_gateway import decide, stream_chat
+from app.services.model_gateway import local_fallback
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MiPet AI Service", version="0.1.0")
 app.add_middleware(
@@ -73,7 +78,26 @@ async def decision(pet_id: str, request: DecisionRequest):
     database.record_interaction(pet_id, request.event)
     if request.event.type == "chat" and request.event.content:
         database.add_message(pet_id, "user", request.event.content)
-    result = await decide(request)
+
+    ctx = request.context
+    agent = get_or_create_agent(ctx.pet_id, ctx.pet_name, ctx.species, ctx.mbti)
+    if agent is None:
+        result = local_fallback(request)
+    else:
+        try:
+            user_input = json.dumps(
+                {"state": ctx.state.model_dump(), "event": request.event.model_dump()},
+                ensure_ascii=False,
+            )
+            response = await agent.arun(user_input, stream=False)
+            content = response.content.strip() if response.content else ""
+            content = content.removeprefix("```json").removesuffix("```").strip()
+            parsed = json.loads(content)
+            result = DecisionResponse.model_validate({**local_fallback(request).model_dump(), **parsed, "fallback": False})
+        except Exception:
+            logger.exception("Agno decision failed")
+            result = local_fallback(request)
+
     if result.dialogue:
         database.add_message(pet_id, "assistant", result.dialogue)
     if result.memory_write:
@@ -96,9 +120,20 @@ async def persisted_chat_stream(pet_id: str, request: DecisionRequest) -> AsyncG
     if is_chat and request.event.content:
         database.add_message(pet_id, "user", request.event.content)
 
+    ctx = request.context
+    agent = get_or_create_agent(ctx.pet_id, ctx.pet_name, ctx.species, ctx.mbti)
+
+    if agent is None:
+        fallback = local_fallback(request)
+        yield f"data: {json.dumps({'token': fallback.dialogue}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'done': True, 'animation': fallback.animation})}\n\n"
+        if is_chat and fallback.dialogue:
+            database.add_message(pet_id, "assistant", fallback.dialogue)
+        return
+
     reply_parts: list[str] = []
     assistant_saved = False
-    async for event in stream_chat(request):
+    async for event in agent_stream_to_sse(agent, request.event.content or "你好", request):
         if event.startswith("data: "):
             try:
                 data = json.loads(event[6:])
