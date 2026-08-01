@@ -523,7 +523,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
       return
     }
     setOwnerError('')
-    setStep(s => Math.min(6, s + 1))
+    setStep(s => Math.min(5, s + 1))
   }
 
   async function pollAppearanceTask(taskId: string) {
@@ -635,7 +635,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
         </header>
 
         <div className="progress-row">
-          {['认识你', '选物种', '选性格', '确认', '选形象', '起名字'].map((label, index) => <div className={`progress-item ${step >= index + 1 ? 'active' : ''}`} key={label}><span>{index + 1}</span>{label}</div>)}
+          {['认识你', '选物种', '选性格', '选形象', '起名字'].map((label, index) => <div className={`progress-item ${step >= index + 1 ? 'active' : ''}`} key={label}><span>{index + 1}</span>{label}</div>)}
         </div>
 
         <div className="onboarding-stage">
@@ -698,59 +698,62 @@ function Onboarding({ existing, onComplete, onCancel }: {
           </section>
         )}
 
-        {step === 2 && <section className="selection-section"><div className="section-intro"><div className="eyebrow">STEP 02 / SPECIES</div><h2>你想和谁一起生活？</h2><p>先选择它的物种，之后你仍然可以为它定制独特的外貌。</p></div><div className="species-grid">{(Object.keys(speciesMeta) as Species[]).map(key => <button key={key} className={`species-card ${species === key ? 'selected' : ''}`} onClick={() => setSpecies(key)}><div className="species-emoji">{speciesMeta[key].emoji}</div><div className="species-label">{speciesMeta[key].label}</div><div className="species-subtitle">{speciesMeta[key].subtitle}</div>{species === key && <div className="selected-mark"><Check size={15} /></div>}</button>)}</div><FooterActions onBack={() => setStep(1)} onNext={next} /></section>}
+        {step === 2 && (
+          <section className="selection-section">
+            <div className="section-intro"><div className="eyebrow">STEP 02 / SPECIES</div><h2>你想和谁一起生活？</h2><p>不同物种有不同的动作风格和表情系统，选好之后还能定制外貌。</p></div>
+            <div className="species-grid">
+              {(Object.keys(speciesMeta) as Species[]).map(key => (
+                <button key={key} className={`species-card ${species === key ? 'selected' : ''}`} onClick={() => setSpecies(key)}>
+                  <div className="species-emoji">{speciesMeta[key].emoji}</div>
+                  <div className="species-label">{speciesMeta[key].label}</div>
+                  <div className="species-subtitle">{speciesMeta[key].subtitle}</div>
+                  {species === key && <div className="selected-mark"><Check size={15} /></div>}
+                </button>
+              ))}
+            </div>
+            <div className="species-features">
+              <div className="feature-item"><Sparkles size={14} /><span>16 种独立人格，每种有专属装饰和动作</span></div>
+              <div className="feature-item"><MessageCircle size={14} /><span>能聊天、能记住你们的对话</span></div>
+              <div className="feature-item"><Heart size={14} /><span>情感系统，越互动越亲密</span></div>
+            </div>
+            <FooterActions onBack={() => setStep(1)} onNext={next} />
+          </section>
+        )}
 
         {step === 3 && (
           <section className="selection-section">
             <div className="section-intro"><div className="eyebrow">STEP 03 / PERSONALITY</div><h2>它会是什么性格？</h2><p>性格决定了它怎么动、怎么表达情绪，以及和你相处的方式。</p></div>
 
             {!personalityPath && (
-              <div className="personality-path-fork">
-                <button className="path-card recommended" type="button" onClick={() => setPersonalityPath('test')}>
-                  <div className="path-card-badge">推荐</div>
-                  <span className="path-card-icon"><Brain size={28} /></span>
-                  <strong>做几道题，帮你找到它</strong>
-                  <p>花两分钟回答几个小问题，我们帮你匹配最合拍的性格</p>
-                  <span className="path-card-action">开始 <ChevronRight size={16} /></span>
-                </button>
-                <button className="path-card compact" type="button" onClick={() => setPersonalityPath('direct')}>
-                  <span className="path-card-icon"><PawPrint size={22} /></span>
-                  <strong>我已经想好了</strong>
-                  <p>心里有数，直接从 16 种人格里挑</p>
-                </button>
-              </div>
-            )}
-
-            {personalityPath === 'test' && !testType && (
-              <div className="test-type-selector">
-                <div className="test-type-heading"><Brain size={18} /><strong>选一种你喜欢的方式</strong></div>
-                <button className="test-type-card" type="button" onClick={() => { setTestType('pet-behavior'); setTestOpen(true) }}>
-                  <span className="test-type-icon">🐾</span>
-                  <div>
+              <>
+                <div className="personality-path-fork">
+                  <button className="path-card" type="button" onClick={() => { setPersonalityPath('test'); setTestType('pet-behavior'); setTestOpen(true) }}>
+                    <div className="path-card-badge">推荐</div>
+                    <span className="path-card-icon">🐾</span>
                     <strong>从真实宠物出发</strong>
                     <p>观察你家猫狗的日常行为，帮它找到对应的人格</p>
-                  </div>
-                  <ChevronRight size={17} />
-                </button>
-                <button className="test-type-card" type="button" onClick={() => { setTestType('user-as-pet'); setUserTestOpen(true) }}>
-                  <span className="test-type-icon">💡</span>
-                  <div>
+                  </button>
+                  <button className="path-card" type="button" onClick={() => { setPersonalityPath('test'); setTestType('user-as-pet'); setUserTestOpen(true) }}>
+                    <div className="path-card-badge">推荐</div>
+                    <span className="path-card-icon">💡</span>
                     <strong>从你的喜好出发</strong>
                     <p>描述你心目中理想伙伴的样子，我们来匹配</p>
+                  </button>
+                  <button className="path-card compact" type="button" onClick={() => setPersonalityPath('direct')}>
+                    <span className="path-card-icon"><PawPrint size={22} /></span>
+                    <strong>我已经想好了</strong>
+                    <p>心里有数，直接从 16 种人格里挑</p>
+                  </button>
+                </div>
+                <div className="personality-preview-strip">
+                  <div className="preview-strip-pet"><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div>
+                  <div className="preview-strip-info">
+                    <div className="preview-strip-tag" style={{ background: selectedGroup.softColor, color: selectedGroup.color }}>{selectedGroup.name}</div>
+                    <strong>{selected.type} · {selected.name}</strong>
+                    <p>性格决定了动作习惯、互动节奏和专属装饰——测试只需 2 分钟</p>
                   </div>
-                  <ChevronRight size={17} />
-                </button>
-                <button className="text-button" onClick={() => { setPersonalityPath(null); setTestType(null) }}>返回</button>
-              </div>
-            )}
-
-            {personalityPath === 'test' && testType && (
-              <div className="test-type-selector">
-                <div className="test-type-heading"><Brain size={18} /><strong>{testType === 'pet-behavior' ? '观察你的宠物' : '描述你的理想伙伴'}</strong></div>
-                <p style={{ opacity: 0.7, marginBottom: 16 }}>准备好了就开始，大约两分钟</p>
-                <button className="primary-button" onClick={() => testType === 'pet-behavior' ? setTestOpen(true) : setUserTestOpen(true)}>开始答题 <ArrowRight size={17} /></button>
-                <button className="text-button" onClick={() => setTestType(null)}>换一种方式</button>
-              </div>
+                </div>
+              </>
             )}
 
             {personalityPath === 'direct' && (
@@ -815,7 +818,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
                     )
                   })}
                 </div>
-                <FooterActions onBack={() => setPersonalityPath(null)} onNext={next} />
+                <FooterActions onBack={() => { setPersonalityPath(null); setTestType(null) }} onNext={next} />
               </>
             )}
 
@@ -825,25 +828,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
 
         {step === 4 && (
           <section className="selection-section">
-            <div className="section-intro"><div className="eyebrow">STEP 04 / CONFIRM</div><h2>就是它了？</h2><p>确认后，它会按照这个性格和你相处——包括动作习惯、互动节奏和专属装饰。</p></div>
-            <div className="confirm-personality-panel" style={previewStyle}>
-              <div className="confirm-preview">
-                <Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" />
-              </div>
-              <div className="confirm-info">
-                <div className="confirm-type-badge" style={{ background: selectedGroup.softColor, color: selectedGroup.color }}>{selectedGroup.name}</div>
-                <h3>{selected.type} · {selected.name}</h3>
-                <p>{selected.description}</p>
-                <div className="keyword-row">{selected.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
-              </div>
-            </div>
-            <FooterActions onBack={() => setStep(3)} onNext={next} />
-          </section>
-        )}
-
-        {step === 5 && (
-          <section className="selection-section">
-            <div className="section-intro"><div className="eyebrow">STEP 05 / APPEARANCE</div><h2>它长什么样？</h2><p>可以直接用我们设计的 3D 形象，也可以上传你家宠物的照片来定制。</p></div>
+            <div className="section-intro"><div className="eyebrow">STEP 04 / APPEARANCE</div><h2>它长什么样？</h2><p>可以直接用我们设计的 3D 形象，也可以上传你家宠物的照片来定制。</p></div>
             <div className="appearance-workspace">
               <section className="appearance-preview-panel" style={previewStyle}>
                 <div className="appearance-preview-stage"><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div>
@@ -885,15 +870,15 @@ function Onboarding({ existing, onComplete, onCancel }: {
                 {appearanceStatus && <div className="appearance-status-line">{appearanceStatus}</div>}
               </section>
             </div>
-            <FooterActions onBack={() => setStep(4)} onNext={next} />
+            <FooterActions onBack={() => { setStep(3); setPersonalityPath(null); setTestType(null) }} onNext={next} />
           </section>
         )}
 
-        {step === 6 && <section className="adopt-section"><div className="adopt-preview"><div className="generated-pet big" style={previewStyle}><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div><div className="preview-badge" style={{ borderColor: selectedGroup.color, color: selectedGroup.color }}>{selected.type} · {selected.name} · {selectedGroup.name}</div>{appearanceMode === 'custom' && customImage && <div className="source-note">已参考你上传的真实宠物照片</div>}</div><div className="adopt-copy"><div className="eyebrow">ONE LAST THING</div><h2>给它一个名字，<br />让它真正来到你的桌面。</h2><p>它会带着 {selected.name} 的性格底色、{selectedGroup.name}的代表色和专属装饰，慢慢记住你们共同经历的每件小事。</p><input className="text-input" placeholder="给它起个名字" value={petName} onChange={e => setPetName(e.target.value)} autoFocus /><button className="primary-button full" onClick={adopt}>开始共同生活 <Sparkles size={17} /></button><button className="text-button" onClick={() => setStep(5)}>返回修改形象</button></div></section>}
+        {step === 5 && <section className="adopt-section"><div className="adopt-preview"><div className="generated-pet big" style={previewStyle}><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div><div className="preview-badge" style={{ borderColor: selectedGroup.color, color: selectedGroup.color }}>{selected.type} · {selected.name} · {selectedGroup.name}</div>{appearanceMode === 'custom' && customImage && <div className="source-note">已参考你上传的真实宠物照片</div>}</div><div className="adopt-copy"><div className="eyebrow">ONE LAST THING</div><h2>给它一个名字，<br />让它真正来到你的桌面。</h2><p>它会带着 {selected.name} 的性格底色、{selectedGroup.name}的代表色和专属装饰，慢慢记住你们共同经历的每件小事。</p><input className="text-input" placeholder="给它起个名字" value={petName} onChange={e => setPetName(e.target.value)} autoFocus /><button className="primary-button full" onClick={adopt}>开始共同生活 <Sparkles size={17} /></button><button className="text-button" onClick={() => setStep(4)}>返回修改形象</button></div></section>}
         </div>
       </section>
-      {testOpen && <PetMbtiTestDialog species={species} onCancel={() => setTestOpen(false)} onComplete={completePetTest} />}
-      {userTestOpen && <UserPetTestDialog onCancel={() => setUserTestOpen(false)} onComplete={completeUserTest} />}
+      {testOpen && <PetMbtiTestDialog species={species} onCancel={() => { setTestOpen(false); setPersonalityPath(null); setTestType(null) }} onComplete={completePetTest} />}
+      {userTestOpen && <UserPetTestDialog onCancel={() => { setUserTestOpen(false); setPersonalityPath(null); setTestType(null) }} onComplete={completeUserTest} />}
     </main>
   )
 }
