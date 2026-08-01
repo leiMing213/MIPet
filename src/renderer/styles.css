@@ -232,6 +232,17 @@ html.pet-mode,html.pet-mode body,html.pet-mode #root{width:100%;height:100%;min-
 .appearance-option-icon{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--pet-accent) 12%,#fff);color:var(--pet-accent)}
 .appearance-option-row strong,.appearance-upload-zone strong{display:block;color:#23342d;font-size:14px}.appearance-option-row small,.appearance-upload-zone small{display:block;margin-top:4px;color:#7d8983;font-size:11px;line-height:1.5}
 .appearance-upload-zone input{display:none}.upload-pick-label{padding:7px 10px;border-radius:8px;background:#f2f5f4;color:#61716a;font-size:11px;font-weight:800}
+/* Dropzone for photo upload */
+.dropzone{display:block;border:2px dashed #c8d0d5;border-radius:14px;padding:28px;text-align:center;cursor:pointer;transition:border-color .16s,background .16s,box-shadow .16s;margin-top:10px}
+.dropzone:hover{border-color:#9c8de4;background:#faf8ff}
+.dropzone.drag-over{border-color:#7564c8;background:#f3f0ff;box-shadow:0 0 0 4px rgba(117,100,200,.15)}
+.dropzone input{display:none}
+.dropzone-empty{display:flex;flex-direction:column;align-items:center;gap:8px;color:#8396a9;padding:18px 0}
+.dropzone-empty strong{color:#4a5e6d;font-size:14px}
+.dropzone-empty small{font-size:12px}
+.dropzone-preview{display:flex;flex-direction:column;align-items:center;gap:10px}
+.dropzone-preview img{max-width:180px;max-height:140px;object-fit:contain;border-radius:10px;border:1px solid #e6eef7}
+.dropzone-preview span{font-size:11px;color:#8396a9}
 .uploaded-source-thumb{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:9px;background:#f2f5f4;color:#61716a;font-size:11px;font-weight:800}.uploaded-source-thumb img{width:30px;height:30px;border-radius:7px;object-fit:cover}
 .appearance-status-line{padding:10px 12px;border-radius:10px;background:#f3f6f4;color:#61716a;font-size:11px;line-height:1.5}
 .source-note{width:max-content;max-width:100%;margin:12px auto 0;padding:7px 10px;border-radius:8px;background:#f1f5f3;color:#60726a;font-size:11px}
@@ -292,3 +303,35 @@ body{overflow:auto}
 @media (max-width:980px){.app-shell{display:block;padding:10px}.onboarding-shell{width:100%;height:auto;min-height:calc(100vh - 20px);max-height:none;overflow:visible}.onboarding-stage{overflow:visible}.onboarding-stage>.onboarding-grid,.onboarding-stage>.selection-section,.onboarding-stage>.adopt-section{min-height:0}.onboarding-grid,.adopt-section,.appearance-workspace{grid-template-columns:1fr}.personality-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.footer-actions{position:static;background:transparent}.appearance-workspace{min-height:0}.appearance-preview-stage{min-height:250px}}
 @media (max-width:620px){.brand-header{height:auto;min-height:62px}.progress-row{overflow:auto;flex-wrap:nowrap}.selection-section{padding:26px 18px}.section-intro h2{font-size:25px}.recommendation-list{grid-template-columns:1fr}.appearance-option-row,.appearance-upload-zone{grid-template-columns:38px minmax(0,1fr)}.appearance-option-row>svg,.uploaded-source-thumb,.upload-pick-label{grid-column:2}.personality-grid{grid-template-columns:1fr}.pet-test-backdrop{padding:12px}.pet-test-dialog{max-height:calc(100vh - 24px);overflow:auto}}
 @media (max-width:620px){.mbti-accordion-header{padding:13px 14px}.personality-grid-compact{grid-template-columns:1fr;padding:0 12px 12px}}
+
+/* Personality path fork */
+.personality-path-fork{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-bottom:24px}
+.path-card{position:relative;text-align:left;border:1px solid #dbe7f2;background:#fff;border-radius:18px;padding:28px 24px;cursor:pointer;transition:.2s;display:flex;flex-direction:column;gap:10px}
+.path-card:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(52,86,119,.1)}
+.path-card.recommended{border-color:#b8aef0;background:linear-gradient(135deg,#faf8ff 0%,#f4f1ff 100%)}
+.path-card.recommended:hover{box-shadow:0 14px 30px rgba(117,100,200,.15)}
+.path-card-badge{position:absolute;top:14px;right:14px;padding:4px 9px;border-radius:6px;background:#7564c8;color:#fff;font-size:10px;font-weight:700;letter-spacing:.04em}
+.path-card-icon{width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:#f0edff;color:#7564c8}
+.path-card.compact .path-card-icon{width:40px;height:40px;border-radius:12px;background:#edf2f7;color:#5a7088}
+.path-card strong{font-size:16px}
+.path-card p{font-size:13px;color:#708398;line-height:1.6;margin:0}
+.path-card-action{margin-top:auto;display:inline-flex;align-items:center;gap:5px;color:#7564c8;font-size:13px;font-weight:600}
+
+/* Test type selector */
+.test-type-selector{margin-bottom:24px}
+.test-type-heading{display:flex;align-items:center;gap:9px;margin-bottom:18px;color:#35516e;font-size:15px}
+.test-type-card{width:100%;display:grid;grid-template-columns:48px 1fr 20px;align-items:center;gap:14px;text-align:left;border:1px solid #dbe7f2;background:#fff;border-radius:14px;padding:18px 20px;cursor:pointer;transition:.2s;margin-bottom:10px}
+.test-type-card:hover{border-color:#b8aef0;background:#faf8ff;transform:translateY(-1px);box-shadow:0 8px 20px rgba(117,100,200,.08)}
+.test-type-icon{font-size:28px;text-align:center}
+.test-type-card strong{font-size:14px;display:block;margin-bottom:3px}
+.test-type-card p{font-size:12px;color:#708398;margin:0;line-height:1.5}
+
+/* Confirm personality panel */
+.confirm-personality-panel{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:center;padding:32px;border-radius:20px;background:#f9fbff;border:1px solid #e6eef7;margin-bottom:24px}
+.confirm-preview{height:280px;display:grid;place-items:center;position:relative}
+.confirm-info{display:flex;flex-direction:column;gap:10px}
+.confirm-type-badge{display:inline-flex;align-self:flex-start;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700}
+.confirm-info h3{font-size:24px;margin:0;letter-spacing:-.02em}
+.confirm-info p{font-size:14px;color:#708398;line-height:1.7;margin:0}
+
+@media (max-width:780px){.personality-path-fork{grid-template-columns:1fr}.confirm-personality-panel{grid-template-columns:1fr}.confirm-preview{height:200px}}

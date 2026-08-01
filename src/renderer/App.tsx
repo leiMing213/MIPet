@@ -29,6 +29,7 @@ import { speciesMeta } from './data/pets'
 import { getMbtiBehavior } from './data/mbtiBehaviors'
 import { getMbtiGroup, getPetRecommendations, MBTI_GROUPS, MBTI_TYPES, type MbtiGroupId, type MbtiType } from './data/mbti'
 import { calculatePetMbti, PET_MBTI_QUESTIONS, type PetMbtiResult, type TestAnswer } from './data/petMbtiTest'
+import { calculateUserPetMbti, USER_PET_QUESTIONS, type UserPetResult } from './data/userPetTest'
 import { getMipetBridge } from './mipetBridge'
 import { Pet3D } from './Pet3D'
 
@@ -134,6 +135,17 @@ async function loadLatestSnapshot(): Promise<PetSnapshot | null> {
 
 function App() {
   const mode = new URLSearchParams(window.location.search).get('mode')
+
+  useEffect(() => {
+    const prevent = (e: DragEvent) => { e.preventDefault(); e.stopPropagation() }
+    document.addEventListener('dragover', prevent)
+    document.addEventListener('drop', prevent)
+    return () => {
+      document.removeEventListener('dragover', prevent)
+      document.removeEventListener('drop', prevent)
+    }
+  }, [])
+
   return mode === 'pet' ? <PetWindow /> : <MainWindow />
 }
 
@@ -483,9 +495,11 @@ function Onboarding({ existing, onComplete, onCancel }: {
   const [petName, setPetName] = useState(existing?.name ?? '')
   const [ownerError, setOwnerError] = useState('')
   const [testOpen, setTestOpen] = useState(false)
-  const [petTestResult, setPetTestResult] = useState<string | null>(existing?.appearanceMode === 'custom' ? existing.mbti : null)
+  const [userTestOpen, setUserTestOpen] = useState(false)
   const [ownerPickerOpen, setOwnerPickerOpen] = useState(false)
   const [openMbtiGroup, setOpenMbtiGroup] = useState<MbtiGroupId | null>(() => getMbtiGroup(existing?.ownerMbti || existing?.mbti || 'INTJ').id)
+  const [personalityPath, setPersonalityPath] = useState<'test' | 'direct' | null>(null)
+  const [testType, setTestType] = useState<'pet-behavior' | 'user-as-pet' | null>(null)
 
   const selectedGroup = getMbtiGroup(selected.type)
   const previewStyle = useMemo(() => ({ '--pet-accent': selectedGroup.color } as React.CSSProperties), [selectedGroup.color])
@@ -508,12 +522,8 @@ function Onboarding({ existing, onComplete, onCancel }: {
       setOwnerError('先告诉我应该怎么称呼你')
       return
     }
-    if (step === 4 && appearanceMode === 'custom' && !petTestResult) {
-      setTestOpen(true)
-      return
-    }
     setOwnerError('')
-    setStep(s => Math.min(5, s + 1))
+    setStep(s => Math.min(6, s + 1))
   }
 
   async function pollAppearanceTask(taskId: string) {
@@ -573,9 +583,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
     reader.onload = () => {
       setCustomImage(String(reader.result))
       setAppearanceMode('custom')
-      setPetTestResult(null)
-      setAppearanceStatus('先完成 10 题性格测试，再生成专属形象')
-      setTestOpen(true)
+      void requestAppearance(String(reader.result), selected)
     }
     reader.readAsDataURL(file)
   }
@@ -583,9 +591,15 @@ function Onboarding({ existing, onComplete, onCancel }: {
   function completePetTest(result: PetMbtiResult) {
     const personality = personalities.find(item => item.type === result.type) ?? personalities[0]
     choosePersonality(personality)
-    setPetTestResult(result.type)
     setTestOpen(false)
-    if (customImage) void requestAppearance(customImage, personality)
+    setStep(4)
+  }
+
+  function completeUserTest(result: UserPetResult) {
+    const personality = personalities.find(item => item.type === result.type) ?? personalities[0]
+    choosePersonality(personality)
+    setUserTestOpen(false)
+    setStep(4)
   }
 
   async function adopt() {
@@ -621,7 +635,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
         </header>
 
         <div className="progress-row">
-          {['认识你', '选择物种', '选择人格', '生成形象', '领养'].map((label, index) => <div className={`progress-item ${step >= index + 1 ? 'active' : ''}`} key={label}><span>{index + 1}</span>{label}</div>)}
+          {['认识你', '选物种', '选性格', '确认', '选形象', '起名字'].map((label, index) => <div className={`progress-item ${step >= index + 1 ? 'active' : ''}`} key={label}><span>{index + 1}</span>{label}</div>)}
         </div>
 
         <div className="onboarding-stage">
@@ -688,74 +702,148 @@ function Onboarding({ existing, onComplete, onCancel }: {
 
         {step === 3 && (
           <section className="selection-section">
-            <div className="section-intro"><div className="eyebrow">STEP 03 / PERSONALITY</div><h2>选择它的灵魂底色</h2><p>人格会影响互动节奏、动作风格，以及它佩戴的专属装饰。</p></div>
-            {recommendations.length > 0 && (
-              <section className="recommendation-panel">
-                <div className="recommendation-heading"><div><Sparkles size={18} /><strong>根据你的 {ownerMbti}，优先推荐</strong></div><span>{recommendations.length} 种适合长期陪伴的人格</span></div>
-                <div className="recommendation-list">
-                  {recommendations.map(recommendation => {
-                    const personality = personalities.find(item => item.type === recommendation.type) ?? personalities[0]
-                    const group = getMbtiGroup(personality.type)
-                    return <button key={recommendation.type} className={selected.type === recommendation.type ? 'selected' : ''} style={{ '--recommend-color': group.color, '--recommend-soft': group.softColor } as React.CSSProperties} onClick={() => choosePersonality(personality)}><span className="recommend-code">{recommendation.type}</span><div><strong>{personality.name}</strong><p>{recommendation.reason}</p></div><ChevronRight size={17} /></button>
+            <div className="section-intro"><div className="eyebrow">STEP 03 / PERSONALITY</div><h2>它会是什么性格？</h2><p>性格决定了它怎么动、怎么表达情绪，以及和你相处的方式。</p></div>
+
+            {!personalityPath && (
+              <div className="personality-path-fork">
+                <button className="path-card recommended" type="button" onClick={() => setPersonalityPath('test')}>
+                  <div className="path-card-badge">推荐</div>
+                  <span className="path-card-icon"><Brain size={28} /></span>
+                  <strong>做几道题，帮你找到它</strong>
+                  <p>花两分钟回答几个小问题，我们帮你匹配最合拍的性格</p>
+                  <span className="path-card-action">开始 <ChevronRight size={16} /></span>
+                </button>
+                <button className="path-card compact" type="button" onClick={() => setPersonalityPath('direct')}>
+                  <span className="path-card-icon"><PawPrint size={22} /></span>
+                  <strong>我已经想好了</strong>
+                  <p>心里有数，直接从 16 种人格里挑</p>
+                </button>
+              </div>
+            )}
+
+            {personalityPath === 'test' && !testType && (
+              <div className="test-type-selector">
+                <div className="test-type-heading"><Brain size={18} /><strong>选一种你喜欢的方式</strong></div>
+                <button className="test-type-card" type="button" onClick={() => { setTestType('pet-behavior'); setTestOpen(true) }}>
+                  <span className="test-type-icon">🐾</span>
+                  <div>
+                    <strong>从真实宠物出发</strong>
+                    <p>观察你家猫狗的日常行为，帮它找到对应的人格</p>
+                  </div>
+                  <ChevronRight size={17} />
+                </button>
+                <button className="test-type-card" type="button" onClick={() => { setTestType('user-as-pet'); setUserTestOpen(true) }}>
+                  <span className="test-type-icon">💡</span>
+                  <div>
+                    <strong>从你的喜好出发</strong>
+                    <p>描述你心目中理想伙伴的样子，我们来匹配</p>
+                  </div>
+                  <ChevronRight size={17} />
+                </button>
+                <button className="text-button" onClick={() => { setPersonalityPath(null); setTestType(null) }}>返回</button>
+              </div>
+            )}
+
+            {personalityPath === 'test' && testType && (
+              <div className="test-type-selector">
+                <div className="test-type-heading"><Brain size={18} /><strong>{testType === 'pet-behavior' ? '观察你的宠物' : '描述你的理想伙伴'}</strong></div>
+                <p style={{ opacity: 0.7, marginBottom: 16 }}>准备好了就开始，大约两分钟</p>
+                <button className="primary-button" onClick={() => testType === 'pet-behavior' ? setTestOpen(true) : setUserTestOpen(true)}>开始答题 <ArrowRight size={17} /></button>
+                <button className="text-button" onClick={() => setTestType(null)}>换一种方式</button>
+              </div>
+            )}
+
+            {personalityPath === 'direct' && (
+              <>
+                {recommendations.length > 0 && (
+                  <section className="recommendation-panel">
+                    <div className="recommendation-heading"><div><Sparkles size={18} /><strong>根据你的 {ownerMbti}，优先推荐</strong></div><span>{recommendations.length} 种适合长期陪伴的人格</span></div>
+                    <div className="recommendation-list">
+                      {recommendations.map(recommendation => {
+                        const personality = personalities.find(item => item.type === recommendation.type) ?? personalities[0]
+                        const group = getMbtiGroup(personality.type)
+                        return <button key={recommendation.type} className={selected.type === recommendation.type ? 'selected' : ''} style={{ '--recommend-color': group.color, '--recommend-soft': group.softColor } as React.CSSProperties} onClick={() => choosePersonality(personality)}><span className="recommend-code">{recommendation.type}</span><div><strong>{personality.name}</strong><p>{recommendation.reason}</p></div><ChevronRight size={17} /></button>
+                      })}
+                    </div>
+                  </section>
+                )}
+                <div className="mbti-accordion">
+                  {Object.values(MBTI_GROUPS).map(group => {
+                    const groupPersonalities = personalities.filter(personality => getMbtiGroup(personality.type).id === group.id)
+                    const isOpen = openMbtiGroup === group.id
+                    return (
+                      <section key={group.id} className={`mbti-accordion-group ${isOpen ? 'open' : ''}`} style={{ '--group-color': group.color, '--group-soft': group.softColor } as React.CSSProperties}>
+                        <button
+                          type="button"
+                          className="mbti-accordion-header"
+                          onClick={() => setOpenMbtiGroup(current => current === group.id ? null : group.id)}
+                          aria-expanded={isOpen}
+                        >
+                          <span className="mbti-accordion-title">
+                            <i />
+                            <strong>{group.name}</strong>
+                          </span>
+                          <span className="mbti-accordion-meta">
+                            <small>{groupPersonalities.length} 型</small>
+                            <ChevronRight size={16} />
+                          </span>
+                        </button>
+                        {isOpen && (
+                          <div className="personality-grid personality-grid-compact">
+                            {groupPersonalities.map(personality => {
+                              const isRecommended = recommendedTypes.has(personality.type as MbtiType)
+                              return (
+                                <button
+                                  key={personality.type}
+                                  className={`personality-card ${selected.type === personality.type ? 'selected' : ''}`}
+                                  style={{ '--card-accent': group.color } as React.CSSProperties}
+                                  onClick={() => choosePersonality(personality)}
+                                >
+                                  <div className="personality-top">
+                                    <span className="type-code">{personality.type}</span>
+                                    <span className={isRecommended ? 'recommend-tag' : 'card-pet'}>{isRecommended ? '推荐' : speciesMeta[species].emoji}</span>
+                                  </div>
+                                  <strong>{personality.name}</strong>
+                                  <p>{personality.description}</p>
+                                  <div className="keyword-row">{personality.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    )
                   })}
                 </div>
-              </section>
+                <FooterActions onBack={() => setPersonalityPath(null)} onNext={next} />
+              </>
             )}
-            <div className="mbti-accordion">
-              {Object.values(MBTI_GROUPS).map(group => {
-                const groupPersonalities = personalities.filter(personality => getMbtiGroup(personality.type).id === group.id)
-                const isOpen = openMbtiGroup === group.id
-                return (
-                  <section key={group.id} className={`mbti-accordion-group ${isOpen ? 'open' : ''}`} style={{ '--group-color': group.color, '--group-soft': group.softColor } as React.CSSProperties}>
-                    <button
-                      type="button"
-                      className="mbti-accordion-header"
-                      onClick={() => setOpenMbtiGroup(current => current === group.id ? null : group.id)}
-                      aria-expanded={isOpen}
-                    >
-                      <span className="mbti-accordion-title">
-                        <i />
-                        <strong>{group.name}</strong>
-                      </span>
-                      <span className="mbti-accordion-meta">
-                        <small>{groupPersonalities.length} 型</small>
-                        <ChevronRight size={16} />
-                      </span>
-                    </button>
-                    {isOpen && (
-                      <div className="personality-grid personality-grid-compact">
-                        {groupPersonalities.map(personality => {
-                          const isRecommended = recommendedTypes.has(personality.type as MbtiType)
-                          return (
-                            <button
-                              key={personality.type}
-                              className={`personality-card ${selected.type === personality.type ? 'selected' : ''}`}
-                              style={{ '--card-accent': group.color } as React.CSSProperties}
-                              onClick={() => choosePersonality(personality)}
-                            >
-                              <div className="personality-top">
-                                <span className="type-code">{personality.type}</span>
-                                <span className={isRecommended ? 'recommend-tag' : 'card-pet'}>{isRecommended ? '推荐' : speciesMeta[species].emoji}</span>
-                              </div>
-                              <strong>{personality.name}</strong>
-                              <p>{personality.description}</p>
-                              <div className="keyword-row">{personality.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </section>
-                )
-              })}
-            </div>
-            <FooterActions onBack={() => setStep(2)} onNext={next} />
+
+            {!personalityPath && <div className="footer-actions"><button className="text-button" onClick={() => setStep(2)}>返回</button></div>}
           </section>
         )}
 
         {step === 4 && (
           <section className="selection-section">
-            <div className="section-intro"><div className="eyebrow">STEP 04 / APPEARANCE</div><h2>决定它以什么样子出现</h2><p>使用全新的 3D 默认形象，或上传真实宠物照片并通过 10 题测试识别它的 MBTI。</p></div>
+            <div className="section-intro"><div className="eyebrow">STEP 04 / CONFIRM</div><h2>就是它了？</h2><p>确认后，它会按照这个性格和你相处——包括动作习惯、互动节奏和专属装饰。</p></div>
+            <div className="confirm-personality-panel" style={previewStyle}>
+              <div className="confirm-preview">
+                <Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" />
+              </div>
+              <div className="confirm-info">
+                <div className="confirm-type-badge" style={{ background: selectedGroup.softColor, color: selectedGroup.color }}>{selectedGroup.name}</div>
+                <h3>{selected.type} · {selected.name}</h3>
+                <p>{selected.description}</p>
+                <div className="keyword-row">{selected.keywords.map(keyword => <span key={keyword}>{keyword}</span>)}</div>
+              </div>
+            </div>
+            <FooterActions onBack={() => setStep(3)} onNext={next} />
+          </section>
+        )}
+
+        {step === 5 && (
+          <section className="selection-section">
+            <div className="section-intro"><div className="eyebrow">STEP 05 / APPEARANCE</div><h2>它长什么样？</h2><p>可以直接用我们设计的 3D 形象，也可以上传你家宠物的照片来定制。</p></div>
             <div className="appearance-workspace">
               <section className="appearance-preview-panel" style={previewStyle}>
                 <div className="appearance-preview-stage"><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div>
@@ -767,33 +855,45 @@ function Onboarding({ existing, onComplete, onCancel }: {
                   <div><strong>使用动态 3D 形象</strong><small>直接按当前人格生成桌宠外观和动作</small></div>
                   {appearanceMode === 'default' && <Check size={18} />}
                 </button>
-                <label className={`appearance-upload-zone ${appearanceMode === 'custom' ? 'selected' : ''}`}>
-                  <input type="file" accept="image/*" onChange={event => handlePhoto(event.target.files?.[0])} />
+                <button className={`appearance-option-row ${appearanceMode === 'custom' ? 'selected' : ''}`} type="button" onClick={() => setAppearanceMode('custom')}>
                   <span className="appearance-option-icon"><Camera size={19} /></span>
-                  <div>
-                    <strong>上传真实宠物照片</strong>
-                    <small>照片作为参考来源，主预览仍显示动态宠物</small>
-                  </div>
-                  {customImage ? <span className="uploaded-source-thumb"><Camera size={14} />已选择参考图</span> : <span className="upload-pick-label">选择图片</span>}
-                </label>
+                  <div><strong>上传真实宠物照片</strong><small>上传照片作为参考，生成专属形象</small></div>
+                  {appearanceMode === 'custom' && <Check size={18} />}
+                </button>
                 {appearanceMode === 'custom' && (
-                  <div className={`pet-test-summary ${petTestResult ? 'complete' : ''}`}>
-                    <Brain size={20} />
-                    <div><strong>{petTestResult ? `测试结果：${petTestResult} · ${personalities.find(item => item.type === petTestResult)?.name}` : customImage ? '下一步：完成宠物 MBTI 测试' : '先上传一张宠物照片'}</strong><span>{petTestResult ? '已用测试结果更新动态宠物人格' : customImage ? '根据你观察到的猫狗行为回答，大约 2 分钟' : '上传后会自动打开 10 题测试'}</span></div>
-                    {customImage && <button onClick={() => setTestOpen(true)}>{petTestResult ? '重新测试' : '开始测试'} <ChevronRight size={16} /></button>}
-                  </div>
+                  <label
+                    className="dropzone"
+                    onDragOver={event => { event.preventDefault(); event.currentTarget.classList.add('drag-over') }}
+                    onDragLeave={event => { event.preventDefault(); event.currentTarget.classList.remove('drag-over') }}
+                    onDrop={event => { event.preventDefault(); event.currentTarget.classList.remove('drag-over'); handlePhoto(event.dataTransfer.files?.[0]) }}
+                  >
+                    <input type="file" accept="image/*" onChange={event => handlePhoto(event.target.files?.[0])} />
+                    {customImage ? (
+                      <div className="dropzone-preview">
+                        <img src={customImage} alt="宠物照片" />
+                        <span>点击或拖拽更换照片</span>
+                      </div>
+                    ) : (
+                      <div className="dropzone-empty">
+                        <ImagePlus size={32} />
+                        <strong>拖拽照片到这里</strong>
+                        <small>或点击选择文件</small>
+                      </div>
+                    )}
+                  </label>
                 )}
                 {appearanceStatus && <div className="appearance-status-line">{appearanceStatus}</div>}
               </section>
             </div>
-            <FooterActions onBack={() => setStep(3)} onNext={next} />
+            <FooterActions onBack={() => setStep(4)} onNext={next} />
           </section>
         )}
 
-        {step === 5 && <section className="adopt-section"><div className="adopt-preview"><div className="generated-pet big" style={previewStyle}><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div><div className="preview-badge" style={{ borderColor: selectedGroup.color, color: selectedGroup.color }}>{selected.type} · {selected.name} · {selectedGroup.name}</div>{appearanceMode === 'custom' && customImage && <div className="source-note">已参考你上传的真实宠物照片和行为测试</div>}</div><div className="adopt-copy"><div className="eyebrow">ONE LAST THING</div><h2>给它一个名字，<br />让它真正来到你的桌面。</h2><p>它会带着 {selected.name} 的性格底色、{selectedGroup.name}的代表色和专属装饰，慢慢记住你们共同经历的每件小事。</p><input className="text-input" placeholder="给它起个名字" value={petName} onChange={e => setPetName(e.target.value)} autoFocus /><button className="primary-button full" onClick={adopt}>开始共同生活 <Sparkles size={17} /></button><button className="text-button" onClick={() => setStep(4)}>返回修改形象</button></div></section>}
+        {step === 6 && <section className="adopt-section"><div className="adopt-preview"><div className="generated-pet big" style={previewStyle}><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div><div className="preview-badge" style={{ borderColor: selectedGroup.color, color: selectedGroup.color }}>{selected.type} · {selected.name} · {selectedGroup.name}</div>{appearanceMode === 'custom' && customImage && <div className="source-note">已参考你上传的真实宠物照片</div>}</div><div className="adopt-copy"><div className="eyebrow">ONE LAST THING</div><h2>给它一个名字，<br />让它真正来到你的桌面。</h2><p>它会带着 {selected.name} 的性格底色、{selectedGroup.name}的代表色和专属装饰，慢慢记住你们共同经历的每件小事。</p><input className="text-input" placeholder="给它起个名字" value={petName} onChange={e => setPetName(e.target.value)} autoFocus /><button className="primary-button full" onClick={adopt}>开始共同生活 <Sparkles size={17} /></button><button className="text-button" onClick={() => setStep(5)}>返回修改形象</button></div></section>}
         </div>
       </section>
       {testOpen && <PetMbtiTestDialog species={species} onCancel={() => setTestOpen(false)} onComplete={completePetTest} />}
+      {userTestOpen && <UserPetTestDialog onCancel={() => setUserTestOpen(false)} onComplete={completeUserTest} />}
     </main>
   )
 }
@@ -864,6 +964,75 @@ function PetMbtiTestDialog({ species, onCancel, onComplete }: {
               })}
             </div>
             <button className="primary-button full" onClick={() => onComplete(result)}>使用这个人格并生成形象 <Sparkles size={17} /></button>
+            <button className="text-button" onClick={() => { setResult(null); setQuestionIndex(0); setAnswers({}) }}>重新作答</button>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function UserPetTestDialog({ onCancel, onComplete }: {
+  onCancel: () => void
+  onComplete: (result: UserPetResult) => void
+}) {
+  const [questionIndex, setQuestionIndex] = useState(0)
+  const [answers, setAnswers] = useState<Record<number, TestAnswer>>({})
+  const [result, setResult] = useState<UserPetResult | null>(null)
+  const question = USER_PET_QUESTIONS[questionIndex]
+  const answerOptions: Array<{ value: TestAnswer; label: string }> = [
+    { value: -2, label: '完全不想' },
+    { value: -1, label: '不太想' },
+    { value: 0, label: '无所谓' },
+    { value: 1, label: '比较想' },
+    { value: 2, label: '非常想' }
+  ]
+  const dimensionMeta = [
+    { key: 'EI' as const, left: 'E 外向', right: 'I 内向', max: 6 },
+    { key: 'SN' as const, left: 'S 实感', right: 'N 直觉', max: 4 },
+    { key: 'TF' as const, left: 'T 理性', right: 'F 感性', max: 6 },
+    { key: 'JP' as const, left: 'J 规律', right: 'P 随性', max: 4 }
+  ]
+
+  function answer(value: TestAnswer) {
+    const nextAnswers = { ...answers, [question.id]: value }
+    setAnswers(nextAnswers)
+    if (questionIndex === USER_PET_QUESTIONS.length - 1) {
+      setResult(calculateUserPetMbti(nextAnswers))
+    } else {
+      setQuestionIndex(current => current + 1)
+    }
+  }
+
+  return (
+    <div className="pet-test-backdrop" role="presentation">
+      <section className="pet-test-dialog" role="dialog" aria-modal="true" aria-label="用户宠物人格测试">
+        {!result ? (
+          <>
+            <header className="pet-test-header"><div><Brain size={20} /><span>找到你的理想伙伴</span></div><button onClick={onCancel} aria-label="关闭测试">×</button></header>
+            <div className="pet-test-progress"><span style={{ width: `${(questionIndex + 1) / USER_PET_QUESTIONS.length * 100}%` }} /></div>
+            <div className="pet-test-count">问题 {questionIndex + 1} / {USER_PET_QUESTIONS.length}</div>
+            <div className="pet-question"><span>{String(question.id).padStart(2, '0')}</span><h2>{question.text}</h2><p>{question.hint}</p></div>
+            <div className="answer-scale" aria-label="符合程度">
+              <div className="answer-scale-labels"><span>不希望</span><span>希望</span></div>
+              <div className="answer-options">{answerOptions.map(option => <button key={option.value} className={`answer-${option.value + 2}`} onClick={() => answer(option.value)}><i /><span>{option.label}</span></button>)}</div>
+            </div>
+            <footer className="pet-test-footer"><button disabled={questionIndex === 0} onClick={() => setQuestionIndex(current => Math.max(0, current - 1))}><ChevronLeft size={16} />上一题</button><span>凭直觉选，没有对错</span></footer>
+          </>
+        ) : (
+          <div className="pet-test-result">
+            <div className="result-icon" style={{ background: getMbtiGroup(result.type).softColor, color: getMbtiGroup(result.type).color }}><Check size={28} /></div>
+            <span className="result-kicker">测试完成</span>
+            <h2>你的理想伙伴是 <strong style={{ color: getMbtiGroup(result.type).color }}>{result.type}</strong></h2>
+            <p>{personalities.find(item => item.type === result.type)?.name} · {getMbtiGroup(result.type).name}</p>
+            <div className="trait-results">
+              {dimensionMeta.map(dimension => {
+                const score = result.scores[dimension.key]
+                const position = 50 - score / dimension.max * 50
+                return <div key={dimension.key}><div><span>{dimension.left}</span><small>{result.confidence[dimension.key]}% 倾向</small><span>{dimension.right}</span></div><div className="trait-track"><i style={{ left: `${position}%`, background: getMbtiGroup(result.type).color }} /></div></div>
+              })}
+            </div>
+            <button className="primary-button full" onClick={() => onComplete(result)}>使用这个人格 <Sparkles size={17} /></button>
             <button className="text-button" onClick={() => { setResult(null); setQuestionIndex(0); setAnswers({}) }}>重新作答</button>
           </div>
         )}
