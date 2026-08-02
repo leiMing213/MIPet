@@ -16,6 +16,14 @@ interface PetSpriteSheetStillProps {
   frameIndex?: number
 }
 
+interface PreparedImage {
+  src: string
+  width: number
+  height: number
+}
+
+const ALPHA_THRESHOLD = 12
+
 function useImageNaturalSize(src?: string) {
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
 
@@ -37,6 +45,174 @@ function useImageNaturalSize(src?: string) {
   }, [src])
 
   return size
+}
+
+function usePreparedSpriteImage(src?: string) {
+  const [prepared, setPrepared] = useState<PreparedImage | null>(null)
+
+  useEffect(() => {
+    if (!src) {
+      setPrepared(null)
+      return
+    }
+
+    let cancelled = false
+    const image = new window.Image()
+    image.onload = () => {
+      if (cancelled) return
+      try {
+        const preparedImage = sanitizeSpriteImage(image, src)
+        if (!cancelled) setPrepared(preparedImage)
+      } catch {
+        if (!cancelled) {
+          setPrepared({
+            src,
+            width: Math.max(1, image.naturalWidth || 1),
+            height: Math.max(1, image.naturalHeight || 1),
+          })
+        }
+      }
+    }
+    image.onerror = () => {
+      if (!cancelled) setPrepared(null)
+    }
+    image.src = src
+
+    return () => {
+      cancelled = true
+    }
+  }, [src])
+
+  return prepared
+}
+
+function sanitizeSpriteImage(image: HTMLImageElement, fallbackSrc: string): PreparedImage {
+  const width = Math.max(1, image.naturalWidth || image.width || 1)
+  const height = Math.max(1, image.naturalHeight || image.height || 1)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) {
+    return { src: fallbackSrc, width, height }
+  }
+
+  context.clearRect(0, 0, width, height)
+  context.drawImage(image, 0, 0, width, height)
+  const imageData = context.getImageData(0, 0, width, height)
+  const componentBounds = collectOpaqueComponents(imageData.data, width, height)
+
+  if (componentBounds.length > 1) {
+    const largestArea = Math.max(...componentBounds.map(component => component.area))
+    const minAreaToKeep = Math.max(48, Math.round(largestArea * 0.035))
+    for (const component of componentBounds) {
+      if (component.area >= minAreaToKeep) continue
+      for (const pixelIndex of component.pixels) {
+        imageData.data[pixelIndex * 4 + 3] = 0
+      }
+    }
+    context.putImageData(imageData, 0, 0)
+  }
+
+  const cropBounds = getAlphaBounds(imageData.data, width, height)
+  if (!cropBounds) {
+    return { src: fallbackSrc, width, height }
+  }
+
+  const croppedWidth = cropBounds.right - cropBounds.left + 1
+  const croppedHeight = cropBounds.bottom - cropBounds.top + 1
+  const croppedCanvas = document.createElement('canvas')
+  croppedCanvas.width = Math.max(1, croppedWidth)
+  croppedCanvas.height = Math.max(1, croppedHeight)
+  const croppedContext = croppedCanvas.getContext('2d')
+  if (!croppedContext) {
+    return { src: fallbackSrc, width, height }
+  }
+
+  croppedContext.drawImage(
+    canvas,
+    cropBounds.left,
+    cropBounds.top,
+    croppedWidth,
+    croppedHeight,
+    0,
+    0,
+    croppedWidth,
+    croppedHeight,
+  )
+
+  return {
+    src: croppedCanvas.toDataURL('image/png'),
+    width: croppedWidth,
+    height: croppedHeight,
+  }
+}
+
+function collectOpaqueComponents(data: Uint8ClampedArray, width: number, height: number) {
+  const visited = new Uint8Array(width * height)
+  const components: Array<{ pixels: number[]; area: number }> = []
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x
+      if (visited[index] === 1 || data[index * 4 + 3] < ALPHA_THRESHOLD) continue
+
+      const queue = [index]
+      const pixels: number[] = []
+      visited[index] = 1
+
+      while (queue.length > 0) {
+        const current = queue.pop()
+        if (current === undefined) continue
+        pixels.push(current)
+
+        const cx = current % width
+        const cy = Math.floor(current / width)
+        const neighbors = [
+          current - 1,
+          current + 1,
+          current - width,
+          current + width,
+        ]
+
+        if (cx === 0) neighbors[0] = -1
+        if (cx === width - 1) neighbors[1] = -1
+        if (cy === 0) neighbors[2] = -1
+        if (cy === height - 1) neighbors[3] = -1
+
+        for (const neighbor of neighbors) {
+          if (neighbor < 0 || visited[neighbor] === 1 || data[neighbor * 4 + 3] < ALPHA_THRESHOLD) continue
+          visited[neighbor] = 1
+          queue.push(neighbor)
+        }
+      }
+
+      components.push({ pixels, area: pixels.length })
+    }
+  }
+
+  return components
+}
+
+function getAlphaBounds(data: Uint8ClampedArray, width: number, height: number) {
+  let left = width
+  let top = height
+  let right = -1
+  let bottom = -1
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[(y * width + x) * 4 + 3]
+      if (alpha < ALPHA_THRESHOLD) continue
+      if (x < left) left = x
+      if (y < top) top = y
+      if (x > right) right = x
+      if (y > bottom) bottom = y
+    }
+  }
+
+  if (right < left || bottom < top) return null
+  return { left, top, right, bottom }
 }
 
 export function PetSprite({ imageUrl, action }: PetSpriteProps) {
@@ -144,11 +320,11 @@ export function PetSprite({ imageUrl, action }: PetSpriteProps) {
 
 export function PetSpriteSimple({ imageUrl, action }: PetSpriteProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const naturalSize = useImageNaturalSize(imageUrl)
+  const preparedImage = usePreparedSpriteImage(imageUrl)
   const displaySize = useSpriteViewportSize(
     containerRef,
-    naturalSize?.width ?? 1,
-    naturalSize?.height ?? 1,
+    preparedImage?.width ?? 1,
+    preparedImage?.height ?? 1,
   )
 
   return (
@@ -159,7 +335,7 @@ export function PetSpriteSimple({ imageUrl, action }: PetSpriteProps) {
       />
       <img
         className="pet-sprite-simple-img"
-        src={imageUrl}
+        src={preparedImage?.src ?? imageUrl}
         alt="pet"
         draggable={false}
         style={{
@@ -265,8 +441,8 @@ function PetSpriteSheetFrame({
         {isOverlayClip ? (
           <>
             <img
-              className="pet-sprite-sheet-base"
-              src={clip.baseSrc}
+                className="pet-sprite-sheet-base"
+                src={clip.baseSrc}
               alt="pet base frame"
               draggable={false}
               style={{
@@ -297,10 +473,10 @@ function PetSpriteSheetFrame({
             </div>
           </>
         ) : (
-          <img
-            className="pet-sprite-sheet-image"
-            src={clip.src}
-            alt="pet animation frame"
+            <img
+              className="pet-sprite-sheet-image"
+              src={clip.src}
+              alt="pet animation frame"
             draggable={false}
             style={{
               width: `${sheetWidth}px`,
