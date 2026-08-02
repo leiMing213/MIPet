@@ -536,7 +536,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
   const recommendedTypes = useMemo(() => new Set(recommendations.map(item => item.type)), [recommendations])
   const ownerMbtiPersonality = ownerMbti ? personalities.find(item => item.type === ownerMbti) : null
   const hasGeneratedAppearance = Boolean(customImage || customAnimation)
-  const shouldShowAppearancePlaceholder = (!hasGeneratedAppearance && isAppearanceGenerating) || (appearanceMode === 'custom' && !hasGeneratedAppearance && Boolean(referenceImage))
+  const shouldShowAppearancePlaceholder = !hasGeneratedAppearance && isAppearanceGenerating
 
   useEffect(() => {
     if (!ownerMbti) return
