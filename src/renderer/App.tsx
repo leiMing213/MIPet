@@ -16,10 +16,12 @@ import {
   MonitorUp,
   PawPrint,
   Pencil,
+  Plus,
   Send,
   ShowerHead,
   Smile,
   Sparkles,
+  Trash2,
   Utensils,
   UserRound
 } from 'lucide-react'
@@ -195,6 +197,31 @@ function MainWindow() {
   return <Dashboard profile={profile} onEdit={() => setEditing(true)} onProfileUpdate={setProfile} />
 }
 
+interface ChatSession {
+  id: string
+  petId: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface MbtiQuestionItem {
+  id: number
+  petId: string
+  content: string
+  options: { label: string; dimension: string; direction: string }[]
+  sortOrder: number
+  isActive: boolean
+}
+
+interface MbtiEvalResult {
+  evaluationId: number
+  oldMbti: string
+  suggestedMbti: string | null
+  reasoning: string
+  changed: boolean
+}
+
 function Dashboard({ profile, onEdit, onProfileUpdate }: {
   profile: PetProfile
   onEdit: () => void
@@ -205,6 +232,11 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
   const [state, setState] = useState<PetState>(getState)
   const [messages, setMessages] = useState<ChatRecord[]>([])
   const [growth, setGrowth] = useState<GrowthRecord[]>([])
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [feedback, setFeedback] = useState('')
@@ -213,12 +245,30 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
   const mbti = personalities.find(personality => personality.type === profile.mbti) ?? personalities[0]
   const mbtiGroup = getMbtiGroup(profile.mbti)
 
+  // MBTI Evolution state
+  const [mbtiTriggerActive, setMbtiTriggerActive] = useState(false)
+  const [showMbtiModal, setShowMbtiModal] = useState(false)
+  const [mbtiQuestions, setMbtiQuestions] = useState<MbtiQuestionItem[]>([])
+  const [mbtiAnswers, setMbtiAnswers] = useState<Record<number, number>>({})
+  const [mbtiEvalResult, setMbtiEvalResult] = useState<MbtiEvalResult | null>(null)
+  const [mbtiEvaluating, setMbtiEvaluating] = useState(false)
+  const [mbtiStep, setMbtiStep] = useState<'questionnaire' | 'evaluating' | 'result'>('questionnaire')
+
+  // Question bank management state
+  const [managedQuestions, setManagedQuestions] = useState<MbtiQuestionItem[]>([])
+  const [showAddQuestion, setShowAddQuestion] = useState(false)
+  const [newQContent, setNewQContent] = useState('')
+  const [newQOptions, setNewQOptions] = useState<{ label: string; dimension: string; direction: string }[]>([
+    { label: '', dimension: 'EI', direction: '+' },
+    { label: '', dimension: 'EI', direction: '-' }
+  ])
+
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [snapshotResult, messagesResult, growthResult] = await Promise.allSettled([
+      const [snapshotResult, sessionsResult, growthResult] = await Promise.allSettled([
         fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}`).then(response => response.ok ? response.json() as Promise<PetSnapshot | null> : null),
-        fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/messages`).then(response => response.ok ? response.json() as Promise<ChatRecord[]> : []),
+        fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/sessions`).then(response => response.ok ? response.json() as Promise<ChatSession[]> : []),
         fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/growth`).then(response => response.ok ? response.json() as Promise<GrowthRecord[]> : [])
       ])
       if (cancelled) return
@@ -227,7 +277,16 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
         saveState(nextState)
         setState(nextState)
       }
-      if (messagesResult.status === 'fulfilled') setMessages(messagesResult.value)
+      if (sessionsResult.status === 'fulfilled') {
+        const sessionList = sessionsResult.value
+        setSessions(sessionList)
+        if (sessionList.length > 0) {
+          const latestId = sessionList[0].id
+          setCurrentSessionId(latestId)
+          const messagesResponse = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/sessions/${encodeURIComponent(latestId)}/messages`)
+          if (!cancelled && messagesResponse.ok) setMessages(await messagesResponse.json() as ChatRecord[])
+        }
+      }
       if (growthResult.status === 'fulfilled') setGrowth(growthResult.value)
     })()
     return () => { cancelled = true }
@@ -298,6 +357,60 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
     }, action === 'feed' ? 3400 : 2300)
   }
 
+  async function createNewSession() {
+    const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '新对话' })
+    })
+    if (!response.ok) return null
+    const session = await response.json() as ChatSession
+    setSessions(current => [session, ...current])
+    setCurrentSessionId(session.id)
+    setMessages([])
+    return session
+  }
+
+  async function deleteCurrentSession() {
+    if (!currentSessionId) return
+    await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/sessions/${encodeURIComponent(currentSessionId)}`, { method: 'DELETE' })
+    const remaining = sessions.filter(s => s.id !== currentSessionId)
+    setSessions(remaining)
+    setShowDeleteConfirm(false)
+    if (remaining.length > 0) {
+      setCurrentSessionId(remaining[0].id)
+      const messagesResponse = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/sessions/${encodeURIComponent(remaining[0].id)}/messages`)
+      if (messagesResponse.ok) setMessages(await messagesResponse.json() as ChatRecord[])
+      else setMessages([])
+    } else {
+      setCurrentSessionId(null)
+      setMessages([])
+    }
+  }
+
+  async function switchSession(sessionId: string) {
+    if (sessionId === currentSessionId) return
+    setCurrentSessionId(sessionId)
+    const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/sessions/${encodeURIComponent(sessionId)}/messages`)
+    if (response.ok) setMessages(await response.json() as ChatRecord[])
+    else setMessages([])
+  }
+
+  async function renameSession(sessionId: string, title: string) {
+    const trimmed = title.trim()
+    if (!trimmed) { setEditingSessionId(null); return }
+    const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: trimmed })
+    })
+    if (response.ok) {
+      const updated = await response.json() as ChatSession
+      setSessions(prev => prev.map(s => s.id === sessionId ? updated : s))
+    }
+    setEditingSessionId(null)
+  }
+
   async function sendDashboardChat(event: React.FormEvent) {
     event.preventDefault()
     const content = input.trim()
@@ -308,6 +421,12 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
     setInput('')
     setMessages(current => [...current, userMessage])
     setIsSending(true)
+
+    let sessionId = currentSessionId
+    if (!sessionId) {
+      const newSession = await createNewSession()
+      if (newSession) sessionId = newSession.id
+    }
 
     try {
       const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/chat/stream`, {
@@ -322,7 +441,8 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
             state,
             recent_messages: recentMessages
           },
-          event: { type: 'chat', content, metadata: {} }
+          event: { type: 'chat', content, metadata: {} },
+          session_id: sessionId
         })
       })
       if (!response.ok || !response.body) throw new Error('chat failed')
@@ -374,6 +494,114 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
     } catch {
       flash('已保存在本机，服务恢复后会继续同步')
     }
+  }
+
+  // Load managed questions when profile view is shown
+  useEffect(() => {
+    if (view !== 'profile') return
+    void (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/mbti/questions`)
+        if (response.ok) setManagedQuestions(await response.json() as MbtiQuestionItem[])
+      } catch { /* ignore */ }
+    })()
+  }, [view, profile.id])
+
+  async function addQuestion() {
+    const validOptions = newQOptions.filter(o => o.label.trim())
+    if (!newQContent.trim() || validOptions.length < 2) { flash('请填写题目和至少两个选项'); return }
+    try {
+      const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/mbti/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newQContent.trim(), options: validOptions, sortOrder: managedQuestions.length })
+      })
+      if (!response.ok) throw new Error()
+      const q = await response.json() as MbtiQuestionItem
+      setManagedQuestions(prev => [...prev, q])
+      setNewQContent('')
+      setNewQOptions([{ label: '', dimension: 'EI', direction: '+' }, { label: '', dimension: 'EI', direction: '-' }])
+      setShowAddQuestion(false)
+      flash('题目已添加')
+    } catch { flash('添加失败') }
+  }
+
+  async function deleteQuestion(qid: number) {
+    try {
+      await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/mbti/questions/${qid}`, { method: 'DELETE' })
+      setManagedQuestions(prev => prev.filter(q => q.id !== qid))
+    } catch { flash('删除失败') }
+  }
+
+  // MBTI trigger check on mount + interval
+  useEffect(() => {
+    let cancelled = false
+    const checkTrigger = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/mbti/trigger`)
+        if (!response.ok || cancelled) return
+        const data = await response.json() as { shouldTrigger: boolean }
+        if (!cancelled) setMbtiTriggerActive(data.shouldTrigger)
+      } catch { /* ignore */ }
+    }
+    void checkTrigger()
+    const timer = window.setInterval(checkTrigger, 5 * 60 * 1000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [profile.id])
+
+  async function openMbtiEvaluation() {
+    try {
+      const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/mbti/questions`)
+      if (!response.ok) return
+      const questions = await response.json() as MbtiQuestionItem[]
+      if (questions.length === 0) { flash('暂无性格评估题目'); return }
+      setMbtiQuestions(questions)
+      setMbtiAnswers({})
+      setMbtiEvalResult(null)
+      setMbtiStep('questionnaire')
+      setShowMbtiModal(true)
+    } catch { flash('无法加载问卷') }
+  }
+
+  async function submitMbtiEvaluation() {
+    const answers = Object.entries(mbtiAnswers).map(([qid, idx]) => ({ questionId: Number(qid), selectedOptionIndex: idx }))
+    if (answers.length < mbtiQuestions.length) { flash('请回答所有问题'); return }
+    setMbtiStep('evaluating')
+    setMbtiEvaluating(true)
+    try {
+      const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/mbti/evaluate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers, triggerType: 'manual', sessionId: currentSessionId })
+      })
+      if (!response.ok) throw new Error('evaluate failed')
+      const result = await response.json() as MbtiEvalResult
+      setMbtiEvalResult(result)
+      setMbtiStep('result')
+    } catch { flash('性格评定失败，请稍后再试'); setShowMbtiModal(false) }
+    finally { setMbtiEvaluating(false) }
+  }
+
+  async function confirmMbtiChange(confirmed: boolean) {
+    if (!mbtiEvalResult) return
+    try {
+      const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(profile.id)}/mbti/evaluations/${mbtiEvalResult.evaluationId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed })
+      })
+      if (!response.ok) throw new Error('confirm failed')
+      const result = await response.json() as { mbti: string; changed: boolean }
+      if (result.changed) {
+        const nextProfile = { ...profile, mbti: result.mbti }
+        saveProfile(nextProfile)
+        onProfileUpdate(nextProfile)
+        flash(`性格已变化为 ${result.mbti}！`)
+      } else {
+        flash('性格保持不变')
+      }
+    } catch { flash('确认失败') }
+    finally { setShowMbtiModal(false); setMbtiTriggerActive(false) }
   }
 
   const pageTitle = view === 'home' ? '今天也一起待着吧' : view === 'chat' ? `和${profile.name}聊聊` : '宠物档案'
@@ -436,13 +664,57 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
                 {growth.length > 0 ? growth.slice(0, 4).map(item => <div key={item.id}><i /><span>{growthLabels[item.eventType] ?? '陪伴了一会儿'}</span><small>+{item.xpDelta} XP</small></div>) : <p>从一次摸摸开始，留下你们的第一条记录。</p>}
               </div>
             </section>
+
+            {mbtiTriggerActive && (
+              <section className="mbti-trigger-card" onClick={openMbtiEvaluation}>
+                <div className="card-heading"><div><span>性格评估</span><small>{profile.name}可能在悄悄变化</small></div><Brain size={19} /></div>
+                <p>通过互动和问卷，了解{profile.name}的性格是否需要成长。</p>
+                <button className="mbti-trigger-button">开始评估 <ChevronRight size={16} /></button>
+              </section>
+            )}
           </div>
         )}
 
         {view === 'chat' && (
           <div className="dashboard-content chat-dashboard">
+            <aside className="session-sidebar">
+              <div className="session-sidebar-header">
+                <span>历史对话</span>
+                <button className="conversation-action-button" onClick={createNewSession} title="新建对话" aria-label="新建对话"><Plus size={16} /></button>
+              </div>
+              <div className="session-list">
+                {sessions.map(session => (
+                  <div key={session.id} className={`session-item${session.id === currentSessionId ? ' active' : ''}`} onClick={() => switchSession(session.id)}>
+                    {editingSessionId === session.id ? (
+                      <input
+                        className="session-title-input"
+                        value={editingTitle}
+                        onChange={e => setEditingTitle(e.target.value)}
+                        onBlur={() => setEditingSessionId(null)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); renameSession(session.id, editingTitle) } if (e.key === 'Escape') setEditingSessionId(null) }}
+                        autoFocus
+                        onClick={e => e.stopPropagation()}
+                      />
+                    ) : (
+                      <div className="session-title-row">
+                        <span className="session-title" onDoubleClick={e => { e.stopPropagation(); setEditingSessionId(session.id); setEditingTitle(session.title) }}>{session.title}</span>
+                        <button className="session-edit-btn" onClick={e => { e.stopPropagation(); setEditingSessionId(session.id); setEditingTitle(session.title) }} title="重命名"><Pencil size={12} /></button>
+                      </div>
+                    )}
+                    <span className="session-date">{new Date(session.updatedAt).toLocaleDateString()}</span>
+                  </div>
+                ))}
+                {sessions.length === 0 && <div className="session-list-empty">暂无对话</div>}
+              </div>
+            </aside>
             <section className="conversation-card">
-              <div className="conversation-person"><span className="conversation-pet-avatar"><Pet3D species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" /></span><div><strong>{profile.name}</strong><small>{profile.mbti} · {mbti.name}</small></div></div>
+              <div className="conversation-person">
+                <span className="conversation-pet-avatar"><Pet3D species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" /></span>
+                <div><strong>{profile.name}</strong><small>{profile.mbti} · {mbti.name}</small></div>
+                <div className="conversation-actions">
+                  <button className="conversation-action-button danger" onClick={() => setShowDeleteConfirm(true)} title="删除当前对话" aria-label="删除当前对话" disabled={!currentSessionId}><Trash2 size={16} /></button>
+                </div>
+              </div>
               <div className="message-list">
                 {messages.length === 0 && <div className="empty-conversation"><MessageCircle size={27} /><strong>从一句简单的话开始</strong><span>它会记住你们慢慢聊过的事情。</span><div><button onClick={() => setInput('今天过得怎么样？')}>今天过得怎么样？</button><button onClick={() => setInput('陪我待一会儿')}>陪我待一会儿</button></div></div>}
                 {messages.map(message => <div key={message.id} className={`message-row ${message.role}`}><span>{message.content}</span></div>)}
@@ -450,6 +722,17 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
               </div>
               <form className="dashboard-chat-form" onSubmit={sendDashboardChat}><input value={input} onChange={event => setInput(event.target.value)} placeholder={`和${profile.name}说点什么…`} disabled={isSending} /><button type="submit" aria-label="发送" disabled={isSending || !input.trim()}><Send size={18} /></button></form>
             </section>
+            {showDeleteConfirm && (
+              <div className="confirm-dialog-backdrop" onClick={() => setShowDeleteConfirm(false)}>
+                <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
+                  <p>确认删除当前对话记录？</p>
+                  <div className="confirm-dialog-actions">
+                    <button onClick={() => setShowDeleteConfirm(false)}>取消</button>
+                    <button className="danger" onClick={deleteCurrentSession}>确认删除</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -466,9 +749,127 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
                 <button className="edit-full-profile" onClick={onEdit}>重新选择物种、性格或形象 <ChevronRight size={16} /></button>
               </div>
             </section>
+
+            <section className="question-bank-card">
+              <div className="card-heading"><div><span>性格评估题库</span><small>问卷用于定期评估性格变化</small></div><Brain size={18} /></div>
+              <div className="question-bank-list">
+                {managedQuestions.length === 0 && <p className="question-bank-empty">暂无题目，添加题目后才能进行性格评估。</p>}
+                {managedQuestions.map((q, i) => (
+                  <div key={q.id} className="question-bank-item">
+                    <span className="qb-num">{i + 1}</span>
+                    <div className="qb-body">
+                      <span className="qb-content">{q.content}</span>
+                      <div className="qb-options-preview">{q.options.map((o, oi) => <small key={oi}>{o.label} <em>({o.dimension}{o.direction})</em></small>)}</div>
+                    </div>
+                    <button className="qb-delete" onClick={() => deleteQuestion(q.id)} title="删除"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+
+              {!showAddQuestion ? (
+                <button className="qb-add-button" onClick={() => setShowAddQuestion(true)}><Plus size={15} /> 添加题目</button>
+              ) : (
+                <div className="qb-add-form">
+                  <label>题目内容<input value={newQContent} onChange={e => setNewQContent(e.target.value)} placeholder="例如：你的宠物更喜欢主动找你互动吗？" /></label>
+                  <div className="qb-options-edit">
+                    {newQOptions.map((opt, i) => (
+                      <div key={i} className="qb-option-row">
+                        <input value={opt.label} onChange={e => { const next = [...newQOptions]; next[i] = { ...next[i], label: e.target.value }; setNewQOptions(next) }} placeholder={`选项${i + 1}`} />
+                        <select value={opt.dimension} onChange={e => { const next = [...newQOptions]; next[i] = { ...next[i], dimension: e.target.value }; setNewQOptions(next) }}>
+                          <option value="EI">E/I 外向·内向</option>
+                          <option value="SN">S/N 感觉·直觉</option>
+                          <option value="TF">T/F 思考·情感</option>
+                          <option value="JP">J/P 判断·感知</option>
+                        </select>
+                        <select value={opt.direction} onChange={e => { const next = [...newQOptions]; next[i] = { ...next[i], direction: e.target.value }; setNewQOptions(next) }}>
+                          <option value="+">+ 正向</option>
+                          <option value="-">- 反向</option>
+                        </select>
+                        {newQOptions.length > 2 && (
+                          <button className="qb-remove-option" onClick={() => setNewQOptions(prev => prev.filter((_, idx) => idx !== i))} title="删除选项"><Trash2 size={13} /></button>
+                        )}
+                      </div>
+                    ))}
+                    <button className="qb-add-option" onClick={() => setNewQOptions(prev => [...prev, { label: '', dimension: 'EI', direction: '+' }])}>+ 增加选项</button>
+                  </div>
+                  <div className="qb-add-actions">
+                    <button onClick={() => setShowAddQuestion(false)}>取消</button>
+                    <button className="primary" onClick={addQuestion}>保存题目</button>
+                  </div>
+                </div>
+              )}
+            </section>
           </div>
         )}
       </section>
+      {showMbtiModal && (
+        <div className="confirm-dialog-backdrop" onClick={() => !mbtiEvaluating && setShowMbtiModal(false)}>
+          <div className="mbti-modal" onClick={e => e.stopPropagation()}>
+            {mbtiStep === 'questionnaire' && (
+              <>
+                <h3>性格评估问卷</h3>
+                <p className="mbti-modal-desc">回答以下问题，帮助我们了解{profile.name}的性格变化。</p>
+                <div className="mbti-questions-list">
+                  {mbtiQuestions.map((q, qi) => (
+                    <div key={q.id} className="mbti-question-item">
+                      <span className="mbti-q-num">{qi + 1}.</span>
+                      <span className="mbti-q-content">{q.content}</span>
+                      <div className="mbti-options">
+                        {q.options.map((opt, oi) => (
+                          <label key={oi} className={mbtiAnswers[q.id] === oi ? 'selected' : ''}>
+                            <input type="radio" name={`mbti-q-${q.id}`} checked={mbtiAnswers[q.id] === oi} onChange={() => setMbtiAnswers(prev => ({ ...prev, [q.id]: oi }))} />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mbti-modal-actions">
+                  <button onClick={() => setShowMbtiModal(false)}>取消</button>
+                  <button className="primary" onClick={submitMbtiEvaluation} disabled={Object.keys(mbtiAnswers).length < mbtiQuestions.length}>提交评估</button>
+                </div>
+              </>
+            )}
+            {mbtiStep === 'evaluating' && (
+              <div className="mbti-evaluating">
+                <div className="loading-paw"><Brain size={28} /></div>
+                <p>正在分析{profile.name}的性格变化…</p>
+              </div>
+            )}
+            {mbtiStep === 'result' && mbtiEvalResult && (
+              <>
+                <h3>评估结果</h3>
+                {mbtiEvalResult.changed ? (
+                  <div className="mbti-result-change">
+                    <div className="mbti-change-arrow">
+                      <span className="mbti-old">{mbtiEvalResult.oldMbti}</span>
+                      <ArrowRight size={20} />
+                      <span className="mbti-new">{mbtiEvalResult.suggestedMbti}</span>
+                    </div>
+                    <p className="mbti-reasoning">{mbtiEvalResult.reasoning}</p>
+                  </div>
+                ) : (
+                  <div className="mbti-result-keep">
+                    <p className="mbti-keep-type">{mbtiEvalResult.oldMbti}</p>
+                    <p className="mbti-reasoning">{mbtiEvalResult.reasoning}</p>
+                  </div>
+                )}
+                <div className="mbti-modal-actions">
+                  {mbtiEvalResult.changed ? (
+                    <>
+                      <button onClick={() => confirmMbtiChange(false)}>保持现状</button>
+                      <button className="primary" onClick={() => confirmMbtiChange(true)}>接受变化</button>
+                    </>
+                  ) : (
+                    <button className="primary" onClick={() => setShowMbtiModal(false)}>知道了</button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {feedback && <div className="dashboard-toast">{feedback}</div>}
     </main>
   )
@@ -1041,8 +1442,10 @@ function LegacyPetWindow() {
     const next = { ...state, ...delta, action }
     setState(next)
     localStorage.setItem('mipet:state', JSON.stringify(next))
-    setMessage(text)
-    window.setTimeout(() => setMessage(''), 2600)
+    if (!mbtiNotifyRef.current) {
+      setMessage(text)
+      window.setTimeout(() => setMessage(''), 2600)
+    }
   }
 
   function feed() { act('eat', `${profile?.name}认真地吃完了这份心意。`, { hunger: Math.max(0, state.hunger - 18), mood: Math.min(100, state.mood + 4), affection: Math.min(100, state.affection + 2) }) }
@@ -1093,6 +1496,7 @@ function PetWindow() {
   const dragOrigin = useRef({ x: 0, y: 0 })
   const dragDistance = useRef(0)
   const passthrough = useRef<boolean | null>(null)
+  const chatOpenRef = useRef(false)
   const hoverLeaveTimer = useRef<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const messageTimer = useRef<number | null>(null)
@@ -1104,6 +1508,33 @@ function PetWindow() {
   const behavior = getMbtiBehavior(profile?.mbti)
 
   useEffect(() => { stateRef.current = state }, [state])
+  useEffect(() => { chatOpenRef.current = chatOpen }, [chatOpen])
+
+  const mbtiTriggerMsg = profile ? `${profile.name}最近好像有些变化呢…去面板看看性格评估吧！` : ''
+  const mbtiNotifyRef = useRef(false)
+
+  useEffect(() => {
+    if (!profile) return
+    let cancelled = false
+    const DISMISS_KEY = `mipet:mbti-trigger-dismissed:${profile.id}`
+    const checkMbtiTrigger = async () => {
+      try {
+        const response = await fetch(`http://127.0.0.1:8787/v1/pets/${encodeURIComponent(profile.id)}/mbti/trigger`)
+        if (!response.ok || cancelled) return
+        const data = await response.json() as { shouldTrigger: boolean }
+        if (cancelled) return
+        if (!data.shouldTrigger) {
+          localStorage.removeItem(DISMISS_KEY)
+          return
+        }
+        if (localStorage.getItem(DISMISS_KEY)) return
+        mbtiNotifyRef.current = true
+        setMessage(`${profile.name}最近好像有些变化呢…去面板看看性格评估吧！`)
+      } catch { /* ignore */ }
+    }
+    const timer = window.setTimeout(checkMbtiTrigger, 8000)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [profile?.id])
 
   useEffect(() => {
     const syncPanelChanges = (event: StorageEvent) => {
@@ -1118,21 +1549,21 @@ function PetWindow() {
     return () => window.removeEventListener('storage', syncPanelChanges)
   }, [])
 
-  const interactionActive = isPetHovered || isDragging
+  const interactionActive = isPetHovered || isDragging || chatOpen
 
   useEffect(() => {
     document.documentElement.classList.add('pet-mode')
 
     const scheduleHide = () => {
-      if (isDraggingRef.current || hoverLeaveTimer.current) return
+      if (isDraggingRef.current || hoverLeaveTimer.current || chatOpenRef.current) return
       hoverLeaveTimer.current = window.setTimeout(() => {
         setIsPetHovered(false)
-        setChatOpen(false)
         setControlsOpen(false)
         hoverLeaveTimer.current = null
       }, 220)
     }
     const updateMouseRegion = (event: PointerEvent) => {
+      if (chatOpenRef.current) return
       const hitTarget = document.elementFromPoint(event.clientX, event.clientY)
       const target = hitTarget ?? (event.target instanceof Element ? event.target : null)
       const isHoverZone = Boolean(target?.closest('[data-pet-hover-zone="true"]'))
@@ -1176,11 +1607,11 @@ function PetWindow() {
     if (interactionActive) {
       passthrough.current = false
       mipet.setMousePassthrough(false)
-    } else {
+    } else if (!chatOpen) {
       passthrough.current = true
       mipet.setMousePassthrough(true)
     }
-  }, [interactionActive])
+  }, [interactionActive, chatOpen])
 
   useEffect(() => mipet.onWalkFinished(() => {
     setState(current => {
@@ -1193,6 +1624,7 @@ function PetWindow() {
 
   useEffect(() => {
     if (isStreaming || !message) return
+    if (message === mbtiTriggerMsg) return
 
     const dismiss = () => {
       setMessage('')
@@ -1242,9 +1674,11 @@ function PetWindow() {
         const current = stateRef.current
         const roll = Math.random()
         if (current.hunger >= 76) {
-          setMessage(`${profile.name} 看了看饭盆，又看了看你。`)
-          if (messageTimer.current) window.clearTimeout(messageTimer.current)
-          messageTimer.current = window.setTimeout(() => setMessage(''), 2800)
+          if (!mbtiNotifyRef.current) {
+            setMessage(`${profile.name} 看了看饭盆，又看了看你。`)
+            if (messageTimer.current) window.clearTimeout(messageTimer.current)
+            messageTimer.current = window.setTimeout(() => setMessage(''), 2800)
+          }
         } else if (roll < behavior.walkChance) {
           const [minDistance, maxDistance] = behavior.walkDistance
           const [minDuration, maxDuration] = behavior.walkDuration
@@ -1261,7 +1695,7 @@ function PetWindow() {
           const next = { ...current, action: 'pet' as const }
           setState(next)
           saveState(next)
-          setMessage(behavior.affection > 0.7 ? `${profile.name} 主动凑过来撒了个娇。` : `${profile.name} 抬头观察了你一会儿。`)
+          if (!mbtiNotifyRef.current) setMessage(behavior.affection > 0.7 ? `${profile.name} 主动凑过来撒了个娇。` : `${profile.name} 抬头观察了你一会儿。`)
           if (actionTimer.current) window.clearTimeout(actionTimer.current)
           actionTimer.current = window.setTimeout(() => {
             setState(latest => {
@@ -1482,10 +1916,16 @@ function PetWindow() {
         •••
       </button>
 
-      {(isPetHovered || isDragging) && (
+      {(isPetHovered || isDragging || message) && (
         <div className={`pet-bubble desktop-bubble ${isStreaming ? 'is-streaming' : ''}`} data-pet-interactive="true" data-pet-hover-zone="true">
-          {!isDragging && !isStreaming && (
-            <button type="button" className="bubble-close" onClick={() => setMessage('')} aria-label="关闭">&times;</button>
+          {!isDragging && !isStreaming && message && (
+            <button type="button" className="bubble-close" onClick={() => {
+              if (profile && mbtiNotifyRef.current) {
+                localStorage.setItem(`mipet:mbti-trigger-dismissed:${profile.id}`, '1')
+                mbtiNotifyRef.current = false
+              }
+              setMessage('')
+            }} aria-label="关闭">&times;</button>
           )}
           {isDragging ? '带我去哪里？' : message || `${stableProfile.name} 正看着你，要聊聊天吗？`}
           {isStreaming && <span className="streaming-cursor" />}
@@ -1521,7 +1961,7 @@ function PetWindow() {
         <button type="button" onClick={walk}>散步</button>
       </div>
 
-      {chatOpen && isPetHovered && (
+      {chatOpen && (
         <form className="chat-panel desktop-chat-panel" data-pet-interactive="true" data-pet-hover-zone="true" onSubmit={sendChat}>
           <input autoFocus value={input} onChange={event => setInput(event.target.value)} placeholder={`和 ${stableProfile.name} 说点什么……`} disabled={isStreaming} />
           <button type="submit" disabled={isStreaming}>{isStreaming ? '…' : '发送'}</button>

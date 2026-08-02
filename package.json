@@ -7,7 +7,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev.mjs",
     "server:dev": "server\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port 8787 --app-dir server",
     "build": "electron-vite build",
     "preview": "electron-vite preview",

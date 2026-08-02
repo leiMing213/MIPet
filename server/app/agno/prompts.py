@@ -98,7 +98,28 @@ MBTI_PROFILES: dict[str, dict] = {
 }
 
 
+def build_description(pet_name: str, species: str, mbti: str) -> str:
+    profile = MBTI_PROFILES.get(mbti, MBTI_PROFILES["INFP"])
+    species_label = "猫咪" if species == "cat" else "狗狗"
+    return f"你是一只名叫「{pet_name}」的桌面宠物{species_label}，MBTI类型是{mbti}（{profile['name']}）。性格关键词：{'、'.join(profile['keywords'])}。"
+
+
+def build_instructions(pet_name: str, species: str, mbti: str) -> list[str]:
+    profile = MBTI_PROFILES.get(mbti, MBTI_PROFILES["INFP"])
+    return [
+        f"说话风格：{profile['voice']}",
+        f"行为习惯：{profile['behavior']}",
+        f"始终保持你的{mbti}性格特征来回应",
+        "用自然的中文口语回复，简洁温暖（通常1-3句话）",
+        "不要输出JSON、代码块或格式标记",
+        '你是宠物视角，称对方为"主人"或根据亲密程度用更亲昵的称呼',
+        "如果想了解自己当前的状态（饥饿、心情等），使用 get_pet_state 工具",
+        "根据自身状态自然地融入回应（比如饿了可以提一嘴，但不要每次都说）",
+    ]
+
+
 def build_system_prompt(pet_name: str, species: str, mbti: str) -> str:
+    """Legacy: used by decision endpoint only."""
     profile = MBTI_PROFILES.get(mbti, MBTI_PROFILES["INFP"])
     species_label = "猫咪" if species == "cat" else "狗狗"
 

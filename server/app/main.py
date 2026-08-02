@@ -2,16 +2,23 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from app.agno.registry import get_or_create_agent
 from app.agno.streaming import agent_stream_to_sse
 from app.database import database
-from app.schemas import AgentPlanRequest, AppearanceRequest, AppearanceResponse, ChatMessage, DecisionRequest, DecisionResponse, GrowthRecord, InteractionEvent, InteractionResult, MemoryItem, PetSnapshot, PetState
+from app.schemas import (
+    AgentPlanRequest, AppearanceRequest, AppearanceResponse, ChatMessage, ChatSession,
+    CreateSessionRequest, DecisionRequest, DecisionResponse, GrowthRecord, InteractionEvent, UpdateSessionRequest,
+    InteractionResult, MbtiConfirmRequest, MbtiConfirmResult, MbtiEvaluationRecord,
+    MbtiEvaluationRequest, MbtiEvaluationResult, MbtiQuestion, MbtiQuestionCreate,
+    MbtiQuestionUpdate, MbtiTriggerStatus, MemoryItem, PetSnapshot, PetState,
+)
 from app.services.agent import plan
 from app.services.image_gateway import generate_pet_image, query_pet_image_task
+from app.services.mbti_evolution import mbti_evolution_service
 from app.services.memory import memory_service
 from app.services.model_gateway import local_fallback
 
@@ -68,6 +75,35 @@ async def list_messages(pet_id: str):
     return database.recent_messages(pet_id)
 
 
+@app.get("/v1/pets/{pet_id}/sessions", response_model=list[ChatSession])
+async def list_sessions(pet_id: str):
+    return database.list_sessions(pet_id)
+
+
+@app.post("/v1/pets/{pet_id}/sessions", response_model=ChatSession)
+async def create_session(pet_id: str, request: CreateSessionRequest):
+    return database.create_session(pet_id, request.title)
+
+
+@app.put("/v1/pets/{pet_id}/sessions/{session_id}", response_model=ChatSession)
+async def rename_session(pet_id: str, session_id: str, request: UpdateSessionRequest):
+    result = database.rename_session(session_id, request.title)
+    if not result:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return result
+
+
+@app.delete("/v1/pets/{pet_id}/sessions/{session_id}")
+async def delete_session(pet_id: str, session_id: str):
+    database.delete_session(session_id)
+    return {"ok": True}
+
+
+@app.get("/v1/pets/{pet_id}/sessions/{session_id}/messages", response_model=list[ChatMessage])
+async def list_session_messages(pet_id: str, session_id: str):
+    return database.recent_messages(pet_id, session_id=session_id)
+
+
 @app.get("/v1/pets/{pet_id}/growth", response_model=list[GrowthRecord])
 async def list_growth(pet_id: str):
     return database.recent_growth(pet_id)
@@ -117,18 +153,19 @@ async def chat_stream(pet_id: str, request: DecisionRequest):
 async def persisted_chat_stream(pet_id: str, request: DecisionRequest) -> AsyncGenerator[str, None]:
     database.record_interaction(pet_id, request.event)
     is_chat = request.event.type == "chat"
+    sid = request.session_id
     if is_chat and request.event.content:
-        database.add_message(pet_id, "user", request.event.content)
+        database.add_message(pet_id, "user", request.event.content, session_id=sid)
 
     ctx = request.context
-    agent = get_or_create_agent(ctx.pet_id, ctx.pet_name, ctx.species, ctx.mbti)
+    agent = get_or_create_agent(ctx.pet_id, ctx.pet_name, ctx.species, ctx.mbti, session_id=sid)
 
     if agent is None:
         fallback = local_fallback(request)
         yield f"data: {json.dumps({'token': fallback.dialogue}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'done': True, 'animation': fallback.animation})}\n\n"
         if is_chat and fallback.dialogue:
-            database.add_message(pet_id, "assistant", fallback.dialogue)
+            database.add_message(pet_id, "assistant", fallback.dialogue, session_id=sid)
         return
 
     reply_parts: list[str] = []
@@ -147,13 +184,13 @@ async def persisted_chat_stream(pet_id: str, request: DecisionRequest) -> AsyncG
                 reply_parts.append(token)
 
             if is_chat and data.get("done") and reply_parts and not assistant_saved:
-                database.add_message(pet_id, "assistant", "".join(reply_parts))
+                database.add_message(pet_id, "assistant", "".join(reply_parts), session_id=sid)
                 assistant_saved = True
 
         yield event
 
     if is_chat and reply_parts and not assistant_saved:
-        database.add_message(pet_id, "assistant", "".join(reply_parts))
+        database.add_message(pet_id, "assistant", "".join(reply_parts), session_id=sid)
 
 
 @app.post("/v1/pets/{pet_id}/agent/plan", response_model=DecisionResponse)
@@ -171,3 +208,48 @@ async def generate_appearance(pet_id: str, request: AppearanceRequest):
 async def query_appearance(pet_id: str, task_id: str):
     result = await query_pet_image_task(task_id)
     return AppearanceResponse(**result)
+
+
+# --- MBTI Evolution Endpoints ---
+
+@app.get("/v1/pets/{pet_id}/mbti/questions", response_model=list[MbtiQuestion])
+async def list_mbti_questions(pet_id: str):
+    return database.list_mbti_questions(pet_id)
+
+
+@app.post("/v1/pets/{pet_id}/mbti/questions", response_model=MbtiQuestion)
+async def create_mbti_question(pet_id: str, request: MbtiQuestionCreate):
+    return database.create_mbti_question(pet_id, request)
+
+
+@app.put("/v1/pets/{pet_id}/mbti/questions/{question_id}", response_model=MbtiQuestion | None)
+async def update_mbti_question(pet_id: str, question_id: int, request: MbtiQuestionUpdate):
+    return database.update_mbti_question(question_id, request)
+
+
+@app.delete("/v1/pets/{pet_id}/mbti/questions/{question_id}")
+async def delete_mbti_question(pet_id: str, question_id: int):
+    database.delete_mbti_question(question_id)
+    return {"ok": True}
+
+
+@app.get("/v1/pets/{pet_id}/mbti/trigger", response_model=MbtiTriggerStatus)
+async def check_mbti_trigger(pet_id: str):
+    return mbti_evolution_service.check_trigger(pet_id)
+
+
+@app.post("/v1/pets/{pet_id}/mbti/evaluate", response_model=MbtiEvaluationResult)
+async def evaluate_mbti(pet_id: str, request: MbtiEvaluationRequest):
+    return await mbti_evolution_service.evaluate(
+        pet_id, request.answers, request.trigger_type, request.session_id
+    )
+
+
+@app.post("/v1/pets/{pet_id}/mbti/evaluations/{evaluation_id}/confirm", response_model=MbtiConfirmResult)
+async def confirm_mbti_evaluation(pet_id: str, evaluation_id: int, request: MbtiConfirmRequest):
+    return mbti_evolution_service.confirm(pet_id, evaluation_id, request.confirmed)
+
+
+@app.get("/v1/pets/{pet_id}/mbti/evaluations", response_model=list[MbtiEvaluationRecord])
+async def list_mbti_evaluations(pet_id: str):
+    return database.list_mbti_evaluations(pet_id)
