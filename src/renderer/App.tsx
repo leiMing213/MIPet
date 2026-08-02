@@ -17,7 +17,6 @@ import {
   PawPrint,
   Pencil,
   Send,
-  ShowerHead,
   Smile,
   Sparkles,
   Utensils,
@@ -40,7 +39,7 @@ const MAX_APPEARANCE_RETRIES = 2
 const MAX_APPEARANCE_POLL_ERRORS = 3
 
 type DashboardView = 'home' | 'chat' | 'profile'
-type CareAction = 'pet' | 'feed' | 'clean' | 'walk'
+type CareAction = 'pet' | 'feed' | 'walk'
 
 interface ChatRecord {
   id: number | string
@@ -118,7 +117,7 @@ async function saveSnapshot(snapshot: PetSnapshot) {
   if (!response.ok) throw new Error(`save pet failed: ${response.status}`)
 }
 
-async function persistPetState(petId: string, state: PetState, eventType?: 'pet' | 'feed' | 'clean' | 'walk'): Promise<PetState | null> {
+async function persistPetState(petId: string, state: PetState, eventType?: 'pet' | 'feed' | 'walk'): Promise<PetState | null> {
   const response = await fetch(`${API_BASE}/v1/pets/${encodeURIComponent(petId)}/state`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -276,17 +275,14 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
     const labels: Record<CareAction, string> = {
       pet: `${profile.name}舒服地眯起了眼睛`,
       feed: `${profile.name}吃饱了，心情不错`,
-      clean: `${profile.name}现在干干净净的`,
       walk: `${profile.name}准备去桌面散散步`
     }
     const current = getState()
     const next: PetState = action === 'feed'
       ? { ...current, hunger: Math.max(0, current.hunger - 18), mood: Math.min(100, current.mood + 4), affection: Math.min(100, current.affection + 2), action: 'eat' }
-      : action === 'clean'
-        ? { ...current, cleanliness: Math.min(100, current.cleanliness + 20), affection: Math.min(100, current.affection + 2), action: 'pet' }
-        : action === 'walk'
-          ? { ...current, mood: Math.min(100, current.mood + 2), action: 'walk' }
-          : { ...current, mood: Math.min(100, current.mood + 3), affection: Math.min(100, current.affection + 3), action: 'pet' }
+      : action === 'walk'
+        ? { ...current, mood: Math.min(100, current.mood + 2), action: 'walk' }
+        : { ...current, mood: Math.min(100, current.mood + 3), affection: Math.min(100, current.affection + 3), action: 'pet' }
 
     saveState(next)
     setState(next)
@@ -401,7 +397,7 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
   }
 
   const pageTitle = view === 'home' ? '今天也一起待着吧' : view === 'chat' ? `和${profile.name}聊聊` : '宠物档案'
-  const growthLabels: Record<string, string> = { chat: '聊了一会儿', pet: '摸了摸它', feed: '喂了一顿', clean: '收拾干净', walk: '一起散步' }
+  const growthLabels: Record<string, string> = { chat: '聊了一会儿', pet: '摸了摸它', feed: '喂了一顿', walk: '一起散步' }
 
   return (
     <main className="dashboard-shell">
@@ -438,7 +434,6 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
             <section className="state-card">
               <div className="card-heading"><div><span>生活状态</span><small>照顾得很不错</small></div><Heart size={19} /></div>
               <StatusRow label="饱腹" value={100 - state.hunger} tone="orange" />
-              <StatusRow label="清洁" value={state.cleanliness} tone="blue" />
               <StatusRow label="心情" value={state.mood} tone="green" />
               <StatusRow label="亲密" value={state.affection} tone="pink" />
             </section>
@@ -447,7 +442,6 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
               <div className="card-heading"><div><span>现在做点什么</span><small>操作会同步到桌面宠物</small></div></div>
               <div className="care-actions">
                 <button data-testid="care-feed" onClick={() => care('feed')}><span className="care-icon food"><Utensils size={20} /></span><strong>喂食</strong><small>饥饿 -18</small></button>
-                <button data-testid="care-clean" onClick={() => care('clean')}><span className="care-icon clean"><ShowerHead size={20} /></span><strong>清洁</strong><small>清洁 +20</small></button>
                 <button data-testid="care-pet" onClick={() => care('pet')}><span className="care-icon pet"><Smile size={20} /></span><strong>摸摸</strong><small>亲密 +3</small></button>
                 <button data-testid="care-walk" onClick={() => care('walk')}><span className="care-icon walk"><Footprints size={20} /></span><strong>散步</strong><small>心情 +2</small></button>
               </div>
@@ -1282,7 +1276,6 @@ function LegacyPetWindow() {
 
   function feed() { act('eat', `${profile?.name}认真地吃完了这份心意。`, { hunger: Math.max(0, state.hunger - 18), mood: Math.min(100, state.mood + 4), affection: Math.min(100, state.affection + 2) }) }
   function pet() { act('pet', `${profile?.name}被摸得眯起了眼睛。`, { mood: Math.min(100, state.mood + 3), affection: Math.min(100, state.affection + 3) }) }
-  function clean() { act('pet', `${profile?.name}假装刚才什么都没有发生。`, { cleanliness: Math.min(100, state.cleanliness + 20), affection: Math.min(100, state.affection + 2) }) }
 
   async function sendChat(event: React.FormEvent) {
     event.preventDefault()
@@ -1310,7 +1303,7 @@ function LegacyPetWindow() {
     }
   }
 
-  return <main className={`pet-stage action-${state.action}`} style={{ '--pet-accent': mbti.accent } as React.CSSProperties}><button className="pet-close" onClick={() => mipet.openPanel()} aria-label="打开控制面板">＋</button><div className="pet-bubble">{message || `${profile.name} · ${profile.mbti}`}</div><div className="pet-character" onDoubleClick={() => mipet.openPanel()} onClick={pet}><div className="pet-shadow" /><div className="pet-glow" /><PetDisplay species={profile.species} mbti={profile.mbti} accent={mbti.accent} action={state.action} customImage={profile.customImage} customAnimation={profile.customAnimation} /></div>{chatOpen && <form className="chat-panel" onSubmit={sendChat}><input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder={`和${profile.name}说点什么…`} /><button type="submit">发送</button></form>}<div className="pet-actions"><button onClick={() => setChatOpen(v => !v)}>聊天</button><button onClick={feed}>喂食</button><button onClick={clean}>清理</button><button onClick={() => act('walk', `${profile.name}在桌面上走了一圈。`)}>走走</button></div><div className="pet-stats"><span>饥饿 {state.hunger}</span><span>清洁 {state.cleanliness}</span><span>亲密 {state.affection}</span></div></main>
+  return <main className={`pet-stage action-${state.action}`} style={{ '--pet-accent': mbti.accent } as React.CSSProperties}><button className="pet-close" onClick={() => mipet.openPanel()} aria-label="打开控制面板">＋</button><div className="pet-bubble">{message || `${profile.name} · ${profile.mbti}`}</div><div className="pet-character" onDoubleClick={() => mipet.openPanel()} onClick={pet}><div className="pet-shadow" /><div className="pet-glow" /><PetDisplay species={profile.species} mbti={profile.mbti} accent={mbti.accent} action={state.action} customImage={profile.customImage} customAnimation={profile.customAnimation} /></div>{chatOpen && <form className="chat-panel" onSubmit={sendChat}><input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder={`和${profile.name}说点什么…`} /><button type="submit">发送</button></form>}<div className="pet-actions"><button onClick={() => setChatOpen(v => !v)}>聊天</button><button onClick={feed}>喂食</button><button onClick={() => act('walk', `${profile.name}在桌面上走了一圈。`)}>走走</button></div><div className="pet-stats"><span>饥饿 {state.hunger}</span><span>亲密 {state.affection}</span></div></main>
 }
 
 function PetWindow() {
@@ -1586,7 +1579,7 @@ function PetWindow() {
     action: PetState['action'],
     text: string,
     delta: Partial<PetState> = {},
-    eventType?: 'pet' | 'feed' | 'clean' | 'walk',
+    eventType?: 'pet' | 'feed' | 'walk',
     options: { showMessage?: boolean } = {}
   ) {
     const showMessage = options.showMessage ?? true
@@ -1679,14 +1672,6 @@ function PetWindow() {
       mood: Math.min(100, state.mood + 4),
       affection: Math.min(100, state.affection + 2)
     }, 'feed', { showMessage: false })
-  }
-
-  function clean() {
-    suppressHoverUi()
-    act('pet', `${stableProfile.name} 又变得干干净净了。`, {
-      cleanliness: Math.min(100, state.cleanliness + 20),
-      affection: Math.min(100, state.affection + 2)
-    }, 'clean', { showMessage: false })
   }
 
   function walk() {
@@ -1831,7 +1816,6 @@ function PetWindow() {
       >
         <button type="button" onClick={() => setChatOpen(open => !open)}>聊天</button>
         <button type="button" onClick={feed}>喂食</button>
-        <button type="button" onClick={clean}>清理</button>
         <button type="button" onClick={walk}>散步</button>
       </div>
 
@@ -1844,7 +1828,6 @@ function PetWindow() {
 
       <div className="pet-stats desktop-pet-stats">
         <span>饥饿 {state.hunger}</span>
-        <span>清洁 {state.cleanliness}</span>
         <span>亲密 {state.affection}</span>
       </div>
     </main>
