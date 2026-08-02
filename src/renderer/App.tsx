@@ -1306,11 +1306,13 @@ function PetWindow() {
   const [input, setInput] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [isPetHovered, setIsPetHovered] = useState(false)
+  const [isHoverUiSuppressed, setIsHoverUiSuppressed] = useState(false)
   const isDraggingRef = useRef(false)
   const dragOrigin = useRef({ x: 0, y: 0 })
   const dragDistance = useRef(0)
   const passthrough = useRef<boolean | null>(null)
   const hoverLeaveTimer = useRef<number | null>(null)
+  const hoverUiSuppressedRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const messageTimer = useRef<number | null>(null)
   const actionTimer = useRef<number | null>(null)
@@ -1319,8 +1321,10 @@ function PetWindow() {
   const mbti = personalities.find(personality => personality.type === profile?.mbti) ?? personalities[0]
   const mbtiGroup = getMbtiGroup(profile?.mbti ?? mbti.type)
   const behavior = getMbtiBehavior(profile?.mbti)
+  const hoverUiVisible = isPetHovered && !isHoverUiSuppressed
 
   useEffect(() => { stateRef.current = state }, [state])
+  useEffect(() => { hoverUiSuppressedRef.current = isHoverUiSuppressed }, [isHoverUiSuppressed])
 
   useEffect(() => {
     let cancelled = false
@@ -1352,7 +1356,7 @@ function PetWindow() {
     return () => window.removeEventListener('storage', syncPanelChanges)
   }, [])
 
-  const interactionActive = isPetHovered || isDragging
+  const interactionActive = hoverUiVisible || isDragging || chatOpen || controlsOpen
 
   useEffect(() => {
     document.documentElement.classList.add('pet-mode')
@@ -1373,9 +1377,10 @@ function PetWindow() {
       if (isHoverZone) {
         if (hoverLeaveTimer.current) window.clearTimeout(hoverLeaveTimer.current)
         hoverLeaveTimer.current = null
-        setIsPetHovered(true)
+        if (!hoverUiSuppressedRef.current) setIsPetHovered(true)
         return
       }
+      if (hoverUiSuppressedRef.current) setIsHoverUiSuppressed(false)
       scheduleHide()
     }
     const releaseDrag = () => {
@@ -1543,7 +1548,30 @@ function PetWindow() {
   if (!profile) return null
   const stableProfile = profile
 
-  function act(action: PetState['action'], text: string, delta: Partial<PetState> = {}, eventType?: 'pet' | 'feed' | 'clean' | 'walk') {
+  function suppressHoverUi() {
+    if (hoverLeaveTimer.current) {
+      window.clearTimeout(hoverLeaveTimer.current)
+      hoverLeaveTimer.current = null
+    }
+    if (messageTimer.current) {
+      window.clearTimeout(messageTimer.current)
+      messageTimer.current = null
+    }
+    setMessage('')
+    setChatOpen(false)
+    setControlsOpen(false)
+    setIsPetHovered(false)
+    setIsHoverUiSuppressed(true)
+  }
+
+  function act(
+    action: PetState['action'],
+    text: string,
+    delta: Partial<PetState> = {},
+    eventType?: 'pet' | 'feed' | 'clean' | 'walk',
+    options: { showMessage?: boolean } = {}
+  ) {
+    const showMessage = options.showMessage ?? true
     setState(current => {
       const next = { ...current, ...delta, action }
       saveState(next)
@@ -1562,9 +1590,16 @@ function PetWindow() {
       }).catch(() => undefined)
       return next
     })
-    setMessage(text)
-    if (messageTimer.current) window.clearTimeout(messageTimer.current)
-    messageTimer.current = window.setTimeout(() => setMessage(''), 2600)
+    if (messageTimer.current) {
+      window.clearTimeout(messageTimer.current)
+      messageTimer.current = null
+    }
+    if (showMessage) {
+      setMessage(text)
+      messageTimer.current = window.setTimeout(() => setMessage(''), 2600)
+    } else {
+      setMessage('')
+    }
     if (actionTimer.current) window.clearTimeout(actionTimer.current)
     if (action === 'eat' || action === 'pet' || action === 'yawn') {
       actionTimer.current = window.setTimeout(() => {
@@ -1620,22 +1655,25 @@ function PetWindow() {
   }
 
   function feed() {
+    suppressHoverUi()
     act('eat', `${stableProfile.name} 认真吃完了这份心意。`, {
       hunger: Math.max(0, state.hunger - 18),
       mood: Math.min(100, state.mood + 4),
       affection: Math.min(100, state.affection + 2)
-    }, 'feed')
+    }, 'feed', { showMessage: false })
   }
 
   function clean() {
+    suppressHoverUi()
     act('pet', `${stableProfile.name} 又变得干干净净了。`, {
       cleanliness: Math.min(100, state.cleanliness + 20),
       affection: Math.min(100, state.affection + 2)
-    }, 'clean')
+    }, 'clean', { showMessage: false })
   }
 
   function walk() {
-    act('walk', `${stableProfile.name} 正在桌面上散步。`, {}, 'walk')
+    suppressHoverUi()
+    act('walk', `${stableProfile.name} 正在桌面上散步。`, {}, 'walk', { showMessage: false })
     const [minDistance, maxDistance] = behavior.walkDistance
     const [minDuration, maxDuration] = behavior.walkDuration
     mipet.walkPet({
@@ -1721,7 +1759,7 @@ function PetWindow() {
 
   return (
     <main
-      className={`pet-stage desktop-pet-stage action-${state.action} ${isDragging ? 'is-dragging' : ''} ${isPetHovered ? 'is-hovered' : ''}`}
+      className={`pet-stage desktop-pet-stage action-${state.action} ${isDragging ? 'is-dragging' : ''} ${hoverUiVisible ? 'is-hovered' : ''}`}
       style={{ '--pet-accent': mbtiGroup.color } as React.CSSProperties}
       onContextMenu={event => {
         event.preventDefault()
@@ -1740,7 +1778,7 @@ function PetWindow() {
         •••
       </button>
 
-      {(isPetHovered || isDragging) && (
+      {(hoverUiVisible || isDragging) && (
         <div className={`pet-bubble desktop-bubble ${isStreaming ? 'is-streaming' : ''}`} data-pet-interactive="true" data-pet-hover-zone="true">
           {!isDragging && !isStreaming && (
             <button type="button" className="bubble-close" onClick={() => setMessage('')} aria-label="关闭">&times;</button>
@@ -1779,7 +1817,7 @@ function PetWindow() {
         <button type="button" onClick={walk}>散步</button>
       </div>
 
-      {chatOpen && isPetHovered && (
+      {chatOpen && hoverUiVisible && (
         <form className="chat-panel desktop-chat-panel" data-pet-interactive="true" data-pet-hover-zone="true" onSubmit={sendChat}>
           <input autoFocus value={input} onChange={event => setInput(event.target.value)} placeholder={`和 ${stableProfile.name} 说点什么……`} disabled={isStreaming} />
           <button type="submit" disabled={isStreaming}>{isStreaming ? '…' : '发送'}</button>
