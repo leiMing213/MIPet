@@ -545,15 +545,15 @@ function createPet(species: Species, mbti: string, accent: string): PetRig {
   const ears: THREE.Group[] = []
   for (const side of [-1, 1]) {
     const ear = new THREE.Group()
-    ear.position.set(side * (isCat ? 0.56 : 0.48), isCat ? 0.7 : 0.54, isCat ? -0.06 : 0)
+    ear.position.set(side * (isCat ? 0.52 : 0.48), isCat ? 0.68 : 0.54, isCat ? -0.04 : 0)
     head.add(ear)
     if (isCat) {
       const outer = addMesh(ear, new THREE.ConeGeometry(0.39, 0.86, 4), fur, [0, -0.02, 0], [1.08, 0.92, 0.78])
-      outer.rotation.y = Math.PI / 4
+      outer.rotation.y = side * (Math.PI / 4)
       outer.rotation.z = side * -0.12
       outer.rotation.x = -0.02
       const inner = addMesh(ear, new THREE.ConeGeometry(0.21, 0.46, 4), pink, [0, -0.1, 0.18], [1, 0.86, 0.68])
-      inner.rotation.y = Math.PI / 4
+      inner.rotation.y = side * (Math.PI / 4)
       inner.rotation.x = -0.02
       const tuft = addMesh(ear, new THREE.ConeGeometry(0.055, 0.14, 5), lightFur, [0, 0.31, 0.03], [0.96, 0.92, 0.28])
       tuft.rotation.x = Math.PI
