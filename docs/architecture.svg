@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540" font-family="'Microsoft YaHei', 'PingFang SC', sans-serif">
+  <defs>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#7564c8;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#5b8fd9;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="agentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5f2ff;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#ede8ff;stop-opacity:1"/>
+    </linearGradient>
+    <filter id="shadow" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="540" rx="0" fill="#f9f8fd"/>
+
+  <!-- Title -->
+  <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="700" fill="#1b334f">MIPet 系统架构</text>
+
+  <!-- ═══════════ Layer 1: Electron Desktop App ═══════════ -->
+  <rect x="30" y="48" width="900" height="148" rx="14" fill="#fff" stroke="#e0daf5" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="30" y="48" width="900" height="32" rx="14" fill="url(#headerGrad)"/>
+  <rect x="30" y="66" width="900" height="14" fill="url(#headerGrad)"/>
+  <text x="480" y="69" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">Electron 双窗口桌面应用</text>
+
+  <!-- Panel Window -->
+  <rect x="60" y="95" width="340" height="85" rx="10" fill="#f9fbff" stroke="#c5bcf0" stroke-width="1"/>
+  <text x="230" y="118" text-anchor="middle" font-size="12" font-weight="600" fill="#5b4ba8">管理面板窗口</text>
+  <text x="230" y="138" text-anchor="middle" font-size="11" fill="#5a6d7e">仪表盘 · 聊天对话 · 性格演化</text>
+  <text x="230" y="156" text-anchor="middle" font-size="11" fill="#5a6d7e">宠物资料 · MBTI 问卷</text>
+  <text x="230" y="172" text-anchor="middle" font-size="10" fill="#8396a9">React 19 + TypeScript</text>
+
+  <!-- Pet Window -->
+  <rect x="560" y="95" width="340" height="85" rx="10" fill="#f9fbff" stroke="#c5bcf0" stroke-width="1"/>
+  <text x="730" y="118" text-anchor="middle" font-size="12" font-weight="600" fill="#5b4ba8">桌宠悬浮窗</text>
+  <text x="730" y="138" text-anchor="middle" font-size="11" fill="#5a6d7e">透明置顶 · 鼠标穿透 · 拖拽移动</text>
+  <text x="730" y="156" text-anchor="middle" font-size="11" fill="#5a6d7e">流式对话 · 自主行为 · 3D 渲染</text>
+  <text x="730" y="172" text-anchor="middle" font-size="10" fill="#8396a9">Three.js 程序化生成</text>
+
+  <!-- Sync arrow -->
+  <line x1="400" y1="132" x2="560" y2="132" stroke="#7564c8" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="480" y="126" text-anchor="middle" font-size="9" fill="#7564c8">localStorage 同步</text>
+  <polygon points="556,129 556,135 562,132" fill="#7564c8"/>
+  <polygon points="404,129 404,135 398,132" fill="#7564c8"/>
+
+  <!-- Connection: Layer 1 → Layer 2 -->
+  <line x1="480" y1="196" x2="480" y2="218" stroke="#7564c8" stroke-width="2"/>
+  <polygon points="476,214 484,214 480,222" fill="#7564c8"/>
+  <text x="520" y="212" font-size="10" fill="#7564c8" font-weight="500">HTTP / SSE</text>
+
+  <!-- ═══════════ Layer 2: FastAPI Backend ═══════════ -->
+  <rect x="30" y="222" width="900" height="220" rx="14" fill="#fff" stroke="#e0daf5" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="30" y="222" width="900" height="32" rx="14" fill="url(#headerGrad)"/>
+  <rect x="30" y="240" width="900" height="14" fill="url(#headerGrad)"/>
+  <text x="480" y="243" text-anchor="middle" font-size="13" font-weight="600" fill="#fff">FastAPI 智能服务层</text>
+
+  <!-- Agent Framework (center highlight) -->
+  <rect x="180" y="265" width="600" height="70" rx="12" fill="url(#agentGrad)" stroke="#c5bcf0" stroke-width="1.5"/>
+  <text x="480" y="288" text-anchor="middle" font-size="13" font-weight="700" fill="#5b4ba8">Agno Agent 框架（核心中枢）</text>
+  <text x="480" y="310" text-anchor="middle" font-size="11" fill="#5a6d7e">Skills（性格评估规则）  ·  Tools（数据获取工具）  ·  Memory（长期记忆管理）</text>
+  <text x="480" y="326" text-anchor="middle" font-size="10" fill="#8396a9">会话隔离 · 流式输出 · 工具自主调用</text>
+
+  <!-- 4 Service Modules -->
+  <rect x="55" y="350" width="190" height="75" rx="10" fill="#f9fbff" stroke="#d4cef0" stroke-width="1"/>
+  <text x="150" y="374" text-anchor="middle" font-size="11" font-weight="600" fill="#5b4ba8">对话引擎</text>
+  <text x="150" y="393" text-anchor="middle" font-size="10" fill="#5a6d7e">SSE 流式响应</text>
+  <text x="150" y="410" text-anchor="middle" font-size="10" fill="#5a6d7e">多会话管理</text>
+
+  <rect x="265" y="350" width="190" height="75" rx="10" fill="#f9fbff" stroke="#d4cef0" stroke-width="1"/>
+  <text x="360" y="374" text-anchor="middle" font-size="11" font-weight="600" fill="#5b4ba8">性格演化</text>
+  <text x="360" y="393" text-anchor="middle" font-size="10" fill="#5a6d7e">定期/互动量触发 + 问卷</text>
+  <text x="360" y="410" text-anchor="middle" font-size="10" fill="#5a6d7e">LLM 综合评估进化</text>
+
+  <rect x="475" y="350" width="190" height="75" rx="10" fill="#f9fbff" stroke="#d4cef0" stroke-width="1"/>
+  <text x="570" y="374" text-anchor="middle" font-size="11" font-weight="600" fill="#5b4ba8">外观生成</text>
+  <text x="570" y="393" text-anchor="middle" font-size="10" fill="#5a6d7e">AI 图像生成</text>
+  <text x="570" y="410" text-anchor="middle" font-size="10" fill="#5a6d7e">视觉分析 · Sprite 动画</text>
+
+  <rect x="685" y="350" width="190" height="75" rx="10" fill="#f9fbff" stroke="#d4cef0" stroke-width="1"/>
+  <text x="780" y="374" text-anchor="middle" font-size="11" font-weight="600" fill="#5b4ba8">记忆系统</text>
+  <text x="780" y="393" text-anchor="middle" font-size="10" fill="#5a6d7e">事件记忆 · 对话记忆</text>
+  <text x="780" y="410" text-anchor="middle" font-size="10" fill="#5a6d7e">成长经验累积</text>
+
+  <!-- Arrows from Agent to services -->
+  <line x1="280" y1="335" x2="150" y2="350" stroke="#c5bcf0" stroke-width="1"/>
+  <line x1="380" y1="335" x2="360" y2="350" stroke="#c5bcf0" stroke-width="1"/>
+  <line x1="580" y1="335" x2="570" y2="350" stroke="#c5bcf0" stroke-width="1"/>
+  <line x1="680" y1="335" x2="780" y2="350" stroke="#c5bcf0" stroke-width="1"/>
+
+  <!-- Connection: Layer 2 → Layer 3 -->
+  <line x1="480" y1="442" x2="480" y2="462" stroke="#7564c8" stroke-width="2"/>
+  <polygon points="476,458 484,458 480,466" fill="#7564c8"/>
+
+  <!-- ═══════════ Layer 3: Infrastructure ═══════════ -->
+  <rect x="30" y="466" width="900" height="58" rx="14" fill="#fff" stroke="#e0daf5" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="30" y="466" width="900" height="28" rx="14" fill="#3d3555"/>
+  <rect x="30" y="480" width="900" height="14" fill="#3d3555"/>
+  <text x="480" y="486" text-anchor="middle" font-size="12" font-weight="600" fill="#e8e4ff">基础设施层</text>
+
+  <!-- Infra items -->
+  <rect x="70" y="500" width="170" height="18" rx="4" fill="#f0ede7"/>
+  <text x="155" y="513" text-anchor="middle" font-size="10" font-weight="500" fill="#43504a">SQLite (WAL)</text>
+
+  <rect x="270" y="500" width="170" height="18" rx="4" fill="#f0ede7"/>
+  <text x="355" y="513" text-anchor="middle" font-size="10" font-weight="500" fill="#43504a">MiMo (对话模型)</text>
+
+  <rect x="470" y="500" width="170" height="18" rx="4" fill="#f0ede7"/>
+  <text x="555" y="513" text-anchor="middle" font-size="10" font-weight="500" fill="#43504a">Image Generation</text>
+
+  <rect x="670" y="500" width="200" height="18" rx="4" fill="#f0ede7"/>
+  <text x="770" y="513" text-anchor="middle" font-size="10" font-weight="500" fill="#43504a">Vision Model</text>
+</svg>
