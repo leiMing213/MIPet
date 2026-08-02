@@ -33,10 +33,13 @@ interface PetRig {
   ears: THREE.Group[]
   eyes: THREE.Mesh[]
   eyeHighlights: THREE.Mesh[]
+  eyeBasePositions: THREE.Vector3[]
+  eyeHighlightBasePositions: THREE.Vector3[]
   brows: THREE.Mesh[]
   whiskers: THREE.Mesh[]
   eyeBaseScaleY: number
   tail: THREE.Group
+  tailBaseRotation: THREE.Euler
   bowl: THREE.Group
   nameplate: THREE.Group
   decoration: THREE.Group
@@ -125,16 +128,46 @@ function starShape(radius = 0.2, inset = 0.09, points = 5) {
 }
 
 function addStar(parent: THREE.Object3D, mat: THREE.Material, size: number, position: [number, number, number], rotationZ = 0) {
-  const mesh = addMesh(parent, new THREE.ExtrudeGeometry(starShape(size, size * 0.44), { depth: size * 0.16, bevelEnabled: true, bevelSize: size * 0.015, bevelThickness: size * 0.02 }), mat, position)
+  const mesh = addMesh(
+    parent,
+    new THREE.ExtrudeGeometry(starShape(size, size * 0.44), {
+      depth: size * 0.16,
+      bevelEnabled: true,
+      bevelSize: size * 0.015,
+      bevelThickness: size * 0.02
+    }),
+    mat,
+    position
+  )
   mesh.rotation.z = rotationZ
   mesh.rotation.x = -0.05
   return mesh
 }
 
-function addRod(parent: THREE.Object3D, mat: THREE.Material, radius: number, length: number, position: [number, number, number], rotation: [number, number, number]) {
+function addRod(
+  parent: THREE.Object3D,
+  mat: THREE.Material,
+  radius: number,
+  length: number,
+  position: [number, number, number],
+  rotation: [number, number, number]
+) {
   const rod = addMesh(parent, new THREE.CylinderGeometry(radius, radius, length, 12), mat, position)
   rod.rotation.set(...rotation)
   return rod
+}
+
+function addWhisker(
+  parent: THREE.Object3D,
+  mat: THREE.Material,
+  radius: number,
+  points: Array<[number, number, number]>
+) {
+  const curve = new THREE.CatmullRomCurve3(points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
+  const whisker = addMesh(parent, new THREE.TubeGeometry(curve, 18, radius, 6, false), mat)
+  whisker.castShadow = false
+  whisker.receiveShadow = false
+  return whisker
 }
 
 function createNameplate(mbti: string, label: string, accent: string) {
@@ -186,7 +219,17 @@ function addDecoration(root: THREE.Group, type: MbtiType, species: Species, acce
     if (accessory === 'goggles') addRod(decoration, darkMat, 0.018, 0.86, [0, 0.01, -0.03], [0, Math.PI / 2, 0])
   } else if (accessory === 'cape') {
     decoration.position.set(0, -0.08, -0.48)
-    const cape = addMesh(decoration, new THREE.ConeGeometry(0.82, 1.25, 4, 1, true), new THREE.MeshPhysicalMaterial({ color: accent, roughness: 0.62, side: THREE.DoubleSide, transparent: true, opacity: 0.82 }))
+    const cape = addMesh(
+      decoration,
+      new THREE.ConeGeometry(0.82, 1.25, 4, 1, true),
+      new THREE.MeshPhysicalMaterial({
+        color: accent,
+        roughness: 0.62,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.82
+      })
+    )
     cape.scale.set(1.18, 0.8, 0.28)
     cape.rotation.y = Math.PI / 4
     cape.position.y = -0.28
@@ -212,7 +255,8 @@ function addDecoration(root: THREE.Group, type: MbtiType, species: Species, acce
     decoration.position.set(0, -0.42, 0.66)
     const ribbon = addMesh(decoration, new THREE.ConeGeometry(0.14, 0.32, 3), accentMat, [0, 0.14, -0.02])
     ribbon.rotation.z = Math.PI
-    addMesh(decoration, new THREE.CylinderGeometry(0.13, 0.13, 0.035, 32), warmMat, [0, -0.04, 0.03], [1, 1, 0.45]).rotation.x = Math.PI / 2
+    const medal = addMesh(decoration, new THREE.CylinderGeometry(0.13, 0.13, 0.035, 32), warmMat, [0, -0.04, 0.03], [1, 1, 0.45])
+    medal.rotation.x = Math.PI / 2
   } else if (accessory === 'star') {
     decoration.position.set(0.46, 0.45, 0.22)
     addStar(decoration, warmMat, 0.2, [0, 0, 0], 0.12)
@@ -260,27 +304,39 @@ function addDecoration(root: THREE.Group, type: MbtiType, species: Species, acce
   return decoration
 }
 
-function createLeg(parent: THREE.Object3D, x: number, z: number, fur: THREE.Material, lightFur: THREE.Material): LegRig {
+function createLeg(parent: THREE.Object3D, x: number, z: number, fur: THREE.Material, lightFur: THREE.Material, species: Species): LegRig {
+  const isCat = species === 'cat'
   const root = new THREE.Group()
-  root.position.set(x, 0.45, z)
+  root.position.set(x, isCat ? 0.42 : 0.45, z)
   parent.add(root)
 
   const upper = new THREE.Group()
   root.add(upper)
-  const upperMesh = addMesh(upper, new THREE.CapsuleGeometry(0.14, 0.32, 8, 16), fur, [0, -0.16, 0])
+  const upperMesh = addMesh(
+    upper,
+    new THREE.CapsuleGeometry(isCat ? 0.118 : 0.155, isCat ? 0.27 : 0.38, 8, 16),
+    fur,
+    [0, isCat ? -0.14 : -0.16, 0]
+  )
   upperMesh.rotation.x = 0.04
 
   const lower = new THREE.Group()
-  lower.position.y = -0.36
+  lower.position.y = isCat ? -0.31 : -0.36
   upper.add(lower)
-  addMesh(lower, new THREE.CapsuleGeometry(0.12, 0.28, 8, 16), fur, [0, -0.14, 0.02])
+  addMesh(lower, new THREE.CapsuleGeometry(isCat ? 0.095 : 0.12, isCat ? 0.25 : 0.28, 8, 16), fur, [0, isCat ? -0.12 : -0.14, 0.02])
 
   const paw = new THREE.Group()
-  paw.position.set(0, -0.33, 0.08)
+  paw.position.set(0, isCat ? -0.28 : -0.33, isCat ? 0.08 : 0.08)
   lower.add(paw)
-  addMesh(paw, new THREE.SphereGeometry(0.2, 22, 16), lightFur, [0, -0.02, 0.06], [1.18, 0.52, 1.42])
-  for (const toeX of [-0.08, 0, 0.08]) {
-    addMesh(paw, new THREE.SphereGeometry(0.026, 10, 8), fur, [toeX, 0.01, 0.22], [1, 0.55, 0.7])
+  addMesh(
+    paw,
+    new THREE.SphereGeometry(isCat ? 0.175 : 0.2, 22, 16),
+    lightFur,
+    [0, -0.02, isCat ? 0.05 : 0.06],
+    isCat ? [1.02, 0.44, 1.26] : [1.18, 0.52, 1.42]
+  )
+  for (const toeX of isCat ? [-0.065, 0, 0.065] : [-0.08, 0, 0.08]) {
+    addMesh(paw, new THREE.SphereGeometry(isCat ? 0.022 : 0.026, 10, 8), fur, [toeX, 0.01, isCat ? 0.18 : 0.22], [1, 0.55, 0.7])
   }
 
   return { root, upper, lower, paw, base: root.position.clone(), side: Math.sign(x), front: z > 0 ? 1 : -1 }
@@ -288,90 +344,220 @@ function createLeg(parent: THREE.Object3D, x: number, z: number, fur: THREE.Mate
 
 function createPet(species: Species, mbti: string, accent: string): PetRig {
   const normalized = isMbtiType(mbti) ? mbti.toUpperCase() as MbtiType : 'INFP'
-  const rootBaseY = -0.72
+  const isCat = species === 'cat'
+  const rootBaseY = -0.74
   const root = new THREE.Group()
   root.position.y = rootBaseY
   root.rotation.y = -0.08
 
   const group = getMbtiGroup(normalized)
   const isIntuitive = normalized[1] === 'N'
-  const baseColor = species === 'cat'
+  const baseColor = isCat
     ? isIntuitive ? '#d8d1c9' : '#c98f55'
     : isIntuitive ? '#d9b476' : '#b97846'
   const fur = petMaterial(baseColor, 0.88)
-  const sideFur = petMaterial(species === 'cat' ? '#bfa995' : '#9a613e', 0.86)
-  const lightFur = petMaterial(species === 'cat' ? '#f6ead8' : '#efd4a8', 0.92)
+  const sideFur = petMaterial(isCat ? '#bfa995' : '#9a613e', 0.86)
+  const lightFur = petMaterial(isCat ? '#f6ead8' : '#efd4a8', 0.92)
   const pink = petMaterial('#e9a9a4', 0.84)
   const dark = petMaterial('#2d2930', 0.58)
+  const whiskerMat = new THREE.MeshBasicMaterial({
+    color: '#1d1a1b',
+    transparent: true,
+    opacity: 0.96,
+    toneMapped: false,
+    depthWrite: false
+  })
   const accentMat = petMaterial(accent || group.color, 0.46)
 
-  const shadow = addMesh(root, new THREE.CircleGeometry(1.32, 48), new THREE.MeshBasicMaterial({ color: '#1c1f28', transparent: true, opacity: 0.16, depthWrite: false }), [0, -0.02, 0.05], [1.1, 0.58, 1])
+  const shadow = addMesh(
+    root,
+    new THREE.CircleGeometry(1.32, 48),
+    new THREE.MeshBasicMaterial({ color: '#1c1f28', transparent: true, opacity: 0.18, depthWrite: false }),
+    [0, -0.34, 0.08],
+    isCat ? [0.94, 0.34, 1.08] : [1.18, 0.38, 1.34]
+  )
   shadow.rotation.x = -Math.PI / 2
   shadow.castShadow = false
   shadow.receiveShadow = false
 
-  const body = addMesh(root, new THREE.SphereGeometry(1, 56, 36), fur, [0, 0.75, -0.14])
-  body.scale.set(species === 'cat' ? 0.82 : 0.96, 0.78, species === 'cat' ? 1.16 : 1.08)
+  const body = addMesh(root, new THREE.SphereGeometry(1, 56, 36), fur, [0, isCat ? 0.76 : 0.75, isCat ? -0.1 : -0.14])
+  body.scale.set(isCat ? 0.72 : 0.96, isCat ? 0.82 : 0.78, isCat ? 0.96 : 1.08)
   const bodyBaseScale = body.scale.clone()
 
-  const backPatch = addMesh(root, new THREE.SphereGeometry(0.82, 36, 24), sideFur, [0, 0.88, -0.49], [species === 'cat' ? 0.72 : 0.82, 0.5, 0.42])
+  const backPatch = addMesh(root, new THREE.SphereGeometry(0.82, 36, 24), sideFur, [0, isCat ? 0.84 : 0.88, isCat ? -0.4 : -0.49], isCat ? [0.56, 0.4, 0.3] : [0.82, 0.5, 0.42])
   backPatch.rotation.x = -0.18
 
-  const chest = addMesh(root, new THREE.SphereGeometry(0.58, 32, 22), lightFur, [0, 0.69, 0.82], [0.74, 0.88, 0.2])
-  const chestTuft = addMesh(root, new THREE.ConeGeometry(0.23, 0.34, 3), lightFur, [0, 0.2, 0.91], [0.9, 1.05, 0.28])
+  const chest = addMesh(root, new THREE.SphereGeometry(0.58, 32, 22), lightFur, [0, isCat ? 0.72 : 0.69, isCat ? 0.68 : 0.82], isCat ? [0.62, 0.92, 0.16] : [0.74, 0.88, 0.2])
+  const chestTuft = addMesh(root, new THREE.ConeGeometry(isCat ? 0.18 : 0.23, isCat ? 0.26 : 0.34, 3), lightFur, [0, isCat ? 0.26 : 0.2, isCat ? 0.78 : 0.91], isCat ? [0.72, 1, 0.2] : [0.9, 1.05, 0.28])
   chestTuft.rotation.z = Math.PI
 
   const head = new THREE.Group()
-  const headBase = new THREE.Vector3(0, 1.66, 0.5)
+  const headBase = new THREE.Vector3(0, isCat ? 1.78 : 1.66, isCat ? 0.44 : 0.5)
   head.position.copy(headBase)
   root.add(head)
-  const headCore = addMesh(head, new THREE.SphereGeometry(0.76, 56, 36), fur)
-  headCore.scale.set(species === 'cat' ? 1 : 1.05, species === 'cat' ? 0.94 : 0.9, 0.92)
 
-  const muzzle = addMesh(head, new THREE.SphereGeometry(0.38, 32, 22), lightFur, [0, -0.16, 0.65])
-  muzzle.scale.set(species === 'dog' ? 1.28 : 1.02, 0.62, species === 'dog' ? 0.92 : 0.54)
-  const chin = addMesh(head, new THREE.SphereGeometry(0.21, 20, 14), lightFur, [0, -0.34, 0.62], [1.15, 0.5, 0.42])
-  const nose = addMesh(head, new THREE.SphereGeometry(0.108, 24, 16), dark, [0, -0.08, species === 'dog' ? 1.02 : 0.9], [1.1, 0.72, 0.72])
-  const mouth = addRod(head, dark, 0.012, 0.2, [0, -0.24, species === 'dog' ? 0.96 : 0.84], [Math.PI / 2, 0, 0])
+  const headCore = addMesh(head, new THREE.SphereGeometry(0.76, 56, 36), fur)
+  headCore.scale.set(isCat ? 1.12 : 1.05, isCat ? 1.08 : 0.9, isCat ? 0.82 : 0.92)
+
+  if (isCat) addMesh(head, new THREE.SphereGeometry(0.22, 20, 14), lightFur, [0, 0.24, 0.28], [0.76, 0.38, 0.24])
+  if (isCat) {
+    for (const side of [-1, 1]) {
+      const cheek = addMesh(head, new THREE.SphereGeometry(0.2, 16, 12), lightFur, [side * 0.27, -0.03, 0.46], [1.14, 0.78, 0.5])
+      cheek.rotation.z = side * 0.08
+    }
+  }
+
+  const muzzle = addMesh(head, new THREE.SphereGeometry(0.38, 32, 22), lightFur, [0, isCat ? -0.12 : -0.16, isCat ? 0.52 : 0.65])
+  muzzle.scale.set(isCat ? 0.78 : 1.28, isCat ? 0.46 : 0.62, isCat ? 0.34 : 0.92)
+  if (isCat) {
+    addMesh(head, new THREE.SphereGeometry(0.14, 18, 12), lightFur, [-0.09, -0.1, 0.66], [0.82, 0.38, 0.22])
+    addMesh(head, new THREE.SphereGeometry(0.14, 18, 12), lightFur, [0.09, -0.1, 0.66], [0.82, 0.38, 0.22])
+  }
+  else addMesh(head, new THREE.SphereGeometry(0.25, 20, 14), lightFur, [0, -0.15, 0.96], [1.34, 0.54, 0.4])
+  const chin = addMesh(head, new THREE.SphereGeometry(0.21, 20, 14), lightFur, [0, isCat ? -0.27 : -0.34, isCat ? 0.5 : 0.62], isCat ? [0.9, 0.34, 0.26] : [1.15, 0.5, 0.42])
+  const nose = addMesh(head, new THREE.SphereGeometry(0.108, 24, 16), isCat ? pink : dark, [0, isCat ? -0.09 : -0.08, isCat ? 0.76 : 1.02], isCat ? [0.74, 0.46, 0.42] : [1.1, 0.72, 0.72])
+  const mouth = addRod(head, dark, 0.012, isCat ? 0.12 : 0.2, [0, isCat ? -0.2 : -0.24, isCat ? 0.72 : 0.96], [Math.PI / 2, 0, 0])
   mouth.scale.x = 0.8
 
   const eyes: THREE.Mesh[] = []
   const eyeHighlights: THREE.Mesh[] = []
+  const eyeBasePositions: THREE.Vector3[] = []
+  const eyeHighlightBasePositions: THREE.Vector3[] = []
   const brows: THREE.Mesh[] = []
-  const eyeBaseScaleY = normalized[2] === 'F' ? 1.16 : 0.96
+  const eyeBaseScaleY = normalized[2] === 'F' ? (isCat ? 1.32 : 1.16) : (isCat ? 1.08 : 0.96)
+
   for (const side of [-1, 1]) {
-    const eye = addMesh(head, new THREE.SphereGeometry(0.11, 22, 14), dark, [side * 0.29, 0.15, 0.68], [0.78, eyeBaseScaleY, 0.48])
+    const eyeBase = new THREE.Vector3(side * (isCat ? 0.33 : 0.29), isCat ? 0.18 : 0.15, isCat ? 0.66 : 0.68)
+    const eye = addMesh(head, new THREE.SphereGeometry(0.11, 22, 14), dark, [eyeBase.x, eyeBase.y, eyeBase.z], isCat ? [0.98, eyeBaseScaleY, 0.36] : [0.78, eyeBaseScaleY, 0.48])
     eyes.push(eye)
-    const shine = addMesh(head, new THREE.SphereGeometry(0.027, 12, 8), petMaterial('#ffffff', 0.2), [side * 0.255, 0.2, 0.76])
+    eyeBasePositions.push(eyeBase)
+
+    const highlightBase = new THREE.Vector3(side * (isCat ? 0.29 : 0.255), isCat ? 0.24 : 0.2, isCat ? 0.74 : 0.76)
+    const shine = addMesh(head, new THREE.SphereGeometry(0.027, 12, 8), petMaterial('#ffffff', 0.2), [highlightBase.x, highlightBase.y, highlightBase.z])
     shine.castShadow = false
     eyeHighlights.push(shine)
-    const brow = addMesh(head, new THREE.BoxGeometry(0.19, 0.028, 0.026), dark, [side * 0.29, 0.32, 0.62])
-    brow.rotation.z = side * (normalized[2] === 'T' ? -0.16 : 0.08)
+    eyeHighlightBasePositions.push(highlightBase)
+
+    const brow = addMesh(head, new THREE.BoxGeometry(isCat ? 0.16 : 0.19, 0.028, 0.026), dark, [side * (isCat ? 0.31 : 0.29), isCat ? 0.34 : 0.32, isCat ? 0.6 : 0.62])
+    brow.rotation.z = side * (normalized[2] === 'T' ? (isCat ? -0.24 : -0.16) : (isCat ? 0.14 : 0.08))
     brows.push(brow)
   }
 
   const whiskers: THREE.Mesh[] = []
-  if (species === 'cat') {
-    for (const side of [-1, 1]) {
-      for (const [index, y] of [0.01, -0.07, -0.15].entries()) {
-        const whisker = addRod(head, dark, 0.006, 0.54, [side * 0.38, y, 0.79], [Math.PI / 2, 0, side * (Math.PI / 2 + (index - 1) * 0.16)])
-        whisker.castShadow = false
-        whiskers.push(whisker)
+  if (isCat) {
+    const whiskerFans = [
+      {
+        rootX: 0.12,
+        rootY: 0.01,
+        rootZ: 0.7,
+        midX: 0.28,
+        midY: 0.08,
+        midZ: 0.8,
+        tipX: 0.8,
+        tipY: 0.18,
+        tipZ: 0.84,
+        endY: 0.21,
+        endZ: 0.76,
+        radius: 0.0047
+      },
+      {
+        rootX: 0.135,
+        rootY: -0.04,
+        rootZ: 0.72,
+        midX: 0.32,
+        midY: 0.02,
+        midZ: 0.82,
+        tipX: 0.86,
+        tipY: 0.03,
+        tipZ: 0.86,
+        endY: 0.01,
+        endZ: 0.79,
+        radius: 0.0043
+      },
+      {
+        rootX: 0.15,
+        rootY: -0.1,
+        rootZ: 0.71,
+        midX: 0.33,
+        midY: -0.07,
+        midZ: 0.8,
+        tipX: 0.82,
+        tipY: -0.08,
+        tipZ: 0.8,
+        endY: -0.15,
+        endZ: 0.75,
+        radius: 0.004
+      },
+      {
+        rootX: 0.145,
+        rootY: -0.15,
+        rootZ: 0.69,
+        midX: 0.29,
+        midY: -0.14,
+        midZ: 0.77,
+        tipX: 0.74,
+        tipY: -0.2,
+        tipZ: 0.76,
+        endY: -0.26,
+        endZ: 0.72,
+        radius: 0.0037
       }
+    ]
+
+    for (const side of [-1, 1]) {
+      const sideYaw = side > 0 ? -0.01 : 0.012
+      const sideLift = side > 0 ? 0.008 : -0.006
+      const sideSpread = side > 0 ? 1 : 0.96
+
+      whiskerFans.forEach((fan, index) => {
+        const tipPull = index === 0 ? 0.04 : index === 3 ? -0.03 : 0
+        const whisker = addWhisker(head, whiskerMat, fan.radius, [
+          [side * fan.rootX, fan.rootY + sideLift * 0.4, fan.rootZ - 0.012 * index],
+          [side * (fan.midX * sideSpread), fan.midY + sideLift, fan.midZ + sideYaw],
+          [side * (fan.tipX * sideSpread), fan.tipY + sideLift * 1.2, fan.tipZ + tipPull],
+          [side * ((fan.tipX + 0.12) * sideSpread), fan.endY + sideLift * 1.5, fan.endZ + tipPull]
+        ])
+        whiskers.push(whisker)
+      })
+    }
+  } else {
+    for (const side of [-1, 1]) {
+      const whiskerSpecs = [
+        { y: -0.08, z: 0.93, length: 0.18, tilt: 0.12 },
+        { y: -0.14, z: 0.95, length: 0.16, tilt: -0.05 }
+      ]
+      whiskerSpecs.forEach(spec => {
+        const whisker = addRod(
+          head,
+          whiskerMat,
+          0.0033,
+          spec.length,
+          [side * 0.24, spec.y, spec.z],
+          [Math.PI / 2, 0, side * (Math.PI / 2 + spec.tilt)]
+        )
+        whisker.castShadow = false
+        whisker.receiveShadow = false
+        whiskers.push(whisker)
+      })
     }
   }
 
   const ears: THREE.Group[] = []
   for (const side of [-1, 1]) {
     const ear = new THREE.Group()
-    ear.position.set(side * 0.48, 0.54, 0)
+    ear.position.set(side * (isCat ? 0.56 : 0.48), isCat ? 0.7 : 0.54, isCat ? -0.06 : 0)
     head.add(ear)
-    if (species === 'cat') {
-      const outer = addMesh(ear, new THREE.ConeGeometry(0.32, 0.74, 4), fur)
+    if (isCat) {
+      const outer = addMesh(ear, new THREE.ConeGeometry(0.39, 0.86, 4), fur, [0, -0.02, 0], [1.08, 0.92, 0.78])
       outer.rotation.y = Math.PI / 4
-      outer.rotation.z = side * -0.13
-      const inner = addMesh(ear, new THREE.ConeGeometry(0.17, 0.42, 4), pink, [0, -0.02, 0.17])
+      outer.rotation.z = side * -0.12
+      outer.rotation.x = -0.02
+      const inner = addMesh(ear, new THREE.ConeGeometry(0.21, 0.46, 4), pink, [0, -0.1, 0.18], [1, 0.86, 0.68])
       inner.rotation.y = Math.PI / 4
+      inner.rotation.x = -0.02
+      const tuft = addMesh(ear, new THREE.ConeGeometry(0.055, 0.14, 5), lightFur, [0, 0.31, 0.03], [0.96, 0.92, 0.28])
+      tuft.rotation.x = Math.PI
+      tuft.rotation.z = side * 0.07
     } else {
       const flap = addMesh(ear, new THREE.SphereGeometry(0.33, 28, 20), sideFur, [side * 0.08, -0.24, 0.03], [0.72, 1.26, 0.4])
       flap.rotation.z = side * 0.34
@@ -380,20 +566,29 @@ function createPet(species: Species, mbti: string, accent: string): PetRig {
     ears.push(ear)
   }
 
-  const legs = [
-    createLeg(root, -0.5, 0.5, fur, lightFur),
-    createLeg(root, 0.5, 0.5, fur, lightFur),
-    createLeg(root, -0.54, -0.48, fur, lightFur),
-    createLeg(root, 0.54, -0.48, fur, lightFur)
-  ]
+  const legs = isCat
+    ? [
+      createLeg(root, -0.39, 0.38, fur, lightFur, species),
+      createLeg(root, 0.39, 0.38, fur, lightFur, species),
+      createLeg(root, -0.44, -0.3, fur, lightFur, species),
+      createLeg(root, 0.44, -0.3, fur, lightFur, species)
+    ]
+    : [
+      createLeg(root, -0.5, 0.5, fur, lightFur, species),
+      createLeg(root, 0.5, 0.5, fur, lightFur, species),
+      createLeg(root, -0.54, -0.48, fur, lightFur, species),
+      createLeg(root, 0.54, -0.48, fur, lightFur, species)
+    ]
 
   const tail = new THREE.Group()
-  tail.position.set(species === 'cat' ? 0.62 : 0, 0.82, -0.95)
+  tail.position.set(isCat ? 0.56 : 0, isCat ? 0.92 : 0.82, isCat ? -0.84 : -0.95)
   root.add(tail)
-  const tailMesh = addMesh(tail, new THREE.CapsuleGeometry(species === 'cat' ? 0.11 : 0.19, species === 'cat' ? 1.18 : 0.68, 12, 20), fur)
-  tailMesh.position.y = species === 'cat' ? 0.46 : 0.28
-  tailMesh.rotation.z = species === 'cat' ? -0.74 : 0
-  tail.rotation.x = species === 'cat' ? -0.16 : -0.82
+  const tailMesh = addMesh(tail, new THREE.CapsuleGeometry(isCat ? 0.08 : 0.19, isCat ? 1.42 : 0.68, 12, 20), fur)
+  tailMesh.position.y = isCat ? 0.62 : 0.28
+  tailMesh.rotation.z = isCat ? -0.28 : 0
+  tail.rotation.x = isCat ? 0.1 : -0.82
+  tail.rotation.z = isCat ? 0.18 : 0
+  const tailBaseRotation = tail.rotation.clone()
 
   const collar = addMesh(head, new THREE.TorusGeometry(0.49, 0.055, 10, 44), accentMat, [0, -0.55, -0.08])
   collar.rotation.x = Math.PI / 2
@@ -405,14 +600,51 @@ function createPet(species: Species, mbti: string, accent: string): PetRig {
 
   const bowl = new THREE.Group()
   bowl.visible = false
-  bowl.position.set(0, -0.48, 1.32)
+  bowl.position.set(0, -0.24, 1.02)
+  bowl.rotation.y = 0.08
   root.add(bowl)
-  const bowlOuter = addMesh(bowl, new THREE.CylinderGeometry(0.5, 0.38, 0.25, 40, 1, true), accentMat, [0, 0.1, 0])
+  const bowlOuter = addMesh(bowl, new THREE.CylinderGeometry(0.54, 0.4, 0.28, 40, 1, true), accentMat, [0, 0.02, 0])
   bowlOuter.rotation.y = 0.06
-  addMesh(bowl, new THREE.CylinderGeometry(0.34, 0.34, 0.08, 32), petMaterial('#8b5132', 0.96), [0, 0.25, 0])
-  for (const x of [-0.12, 0.04, 0.17]) addMesh(bowl, new THREE.SphereGeometry(0.04, 10, 8), petMaterial('#7a4129', 0.94), [x, 0.32, 0.06])
+  const bowlRim = addMesh(bowl, new THREE.TorusGeometry(0.46, 0.03, 10, 40), petMaterial('#f4ede0', 0.46), [0, 0.16, 0])
+  bowlRim.rotation.x = Math.PI / 2
+  addMesh(bowl, new THREE.CylinderGeometry(0.26, 0.34, 0.08, 32), petMaterial('#efe6d8', 0.84), [0, -0.13, 0])
+  addMesh(bowl, new THREE.CylinderGeometry(0.36, 0.31, 0.11, 32), petMaterial('#8b5132', 0.96), [0, 0.1, 0.02])
+  ;[
+    [-0.18, 0.18, 0.03],
+    [-0.06, 0.2, 0.08],
+    [0.07, 0.19, 0.01],
+    [0.18, 0.17, 0.07],
+    [-0.12, 0.15, -0.03],
+    [0.11, 0.14, -0.01]
+  ].forEach(([x, y, z]) => {
+    addMesh(bowl, new THREE.SphereGeometry(0.04, 10, 8), petMaterial('#7a4129', 0.94), [x, y, z], [1.12, 0.84, 0.94])
+  })
 
-  return { root, body, chest, head, headCore, muzzle, legs, ears, eyes, eyeHighlights, brows, whiskers, eyeBaseScaleY, tail, bowl, nameplate, decoration, rootBaseY, bodyBaseScale, headBase }
+  return {
+    root,
+    body,
+    chest,
+    head,
+    headCore,
+    muzzle,
+    legs,
+    ears,
+    eyes,
+    eyeHighlights,
+    eyeBasePositions,
+    eyeHighlightBasePositions,
+    brows,
+    whiskers,
+    eyeBaseScaleY,
+    tail,
+    tailBaseRotation,
+    bowl,
+    nameplate,
+    decoration,
+    rootBaseY,
+    bodyBaseScale,
+    headBase
+  }
 }
 
 function dampNumber(current: number, target: number, lambda: number, delta: number) {
@@ -441,7 +673,7 @@ function animateRig(rig: PetRig, action: ActionId, elapsed: number, delta: numbe
   const bodyRotation = new THREE.Euler(0, 0, 0)
   const headPosition = rig.headBase.clone()
   const headRotation = new THREE.Euler(lookY * 0.055, lookX * 0.1, 0)
-  const tailRotation = new THREE.Euler(rig.tail.rotation.x, 0, 0)
+  const tailRotation = rig.tailBaseRotation.clone()
   const bowlVisible = action === 'eat'
 
   if (action === 'idle') {
@@ -449,7 +681,7 @@ function animateRig(rig: PetRig, action: ActionId, elapsed: number, delta: numbe
     bodyScale.y += Math.sin(t * 1.8) * 0.02
     headRotation.y += Math.sin(t * 0.45) * 0.11 * gesture
     headRotation.z += Math.sin(t * 0.68) * 0.035 * gesture
-    tailRotation.z = Math.sin(t * 1.24) * 0.36 * gesture
+    tailRotation.z += Math.sin(t * 1.24) * 0.36 * gesture
   } else if (action === 'walk') {
     const cadence = t * 7.2
     rootPosition.y += Math.abs(Math.sin(cadence)) * 0.075
@@ -458,15 +690,17 @@ function animateRig(rig: PetRig, action: ActionId, elapsed: number, delta: numbe
     bodyRotation.z = Math.sin(cadence) * 0.018
     headRotation.z += -Math.sin(cadence) * 0.035
     headRotation.y += Math.sin(cadence * 0.5) * 0.06
-    tailRotation.z = Math.sin(t * 3.6) * 0.48 * gesture
+    tailRotation.z += Math.sin(t * 3.6) * 0.48 * gesture
   } else if (action === 'eat') {
     const nibble = Math.sin(t * 5.4)
-    headPosition.set(0, 1.03 + nibble * 0.022, 0.98)
-    headRotation.x = 0.74 + nibble * 0.025
+    rootPosition.y += 0.04
+    rootPosition.z = -0.08
+    headPosition.set(0, 1.12 + nibble * 0.018, 0.86)
+    headRotation.x = 0.64 + nibble * 0.025
     headRotation.y = lookX * 0.02
-    bodyRotation.x = -0.07
-    bodyScale.z += 0.025
-    tailRotation.z = Math.sin(t * 1.7) * 0.14
+    bodyRotation.x = -0.05
+    bodyScale.z += 0.015
+    tailRotation.z += Math.sin(t * 1.7) * 0.14
   } else if (action === 'pet') {
     const happy = Math.sin(t * 5.6)
     const bounce = Math.abs(happy)
@@ -475,7 +709,7 @@ function animateRig(rig: PetRig, action: ActionId, elapsed: number, delta: numbe
     headPosition.y -= 0.04
     headRotation.z += happy * 0.105 * gesture
     headRotation.x -= 0.08
-    tailRotation.z = Math.sin(t * 8.2) * 0.62 * gesture
+    tailRotation.z += Math.sin(t * 8.2) * 0.62 * gesture
   }
 
   rig.bowl.visible = bowlVisible
@@ -538,16 +772,26 @@ function animateRig(rig: PetRig, action: ActionId, elapsed: number, delta: numbe
 
   const lookStrength = action === 'eat' || action === 'pet' ? 0.18 : 1
   rig.eyes.forEach((eye, index) => {
-    const side = index === 0 ? -1 : 1
+    const eyeBase = rig.eyeBasePositions[index]
     const eyeTarget = new THREE.Vector3(
-      side * 0.29 + lookX * 0.045 * lookStrength,
-      0.15 + lookY * 0.055 * lookStrength,
-      0.68
+      eyeBase.x + lookX * 0.045 * lookStrength,
+      eyeBase.y + lookY * 0.055 * lookStrength,
+      eyeBase.z
     )
     dampVector(eye.position, eyeTarget, 20, delta)
     eye.scale.y = dampNumber(eye.scale.y, rig.eyeBaseScaleY * (action === 'eat' || action === 'pet' ? 0.18 : blinkWave), 20, delta)
+    const highlightBase = rig.eyeHighlightBasePositions[index]
     const highlight = rig.eyeHighlights[index]
-    dampVector(highlight.position, new THREE.Vector3(side * 0.255 + lookX * 0.045 * lookStrength, 0.2 + lookY * 0.055 * lookStrength, 0.76), 20, delta)
+    dampVector(
+      highlight.position,
+      new THREE.Vector3(
+        highlightBase.x + lookX * 0.045 * lookStrength,
+        highlightBase.y + lookY * 0.055 * lookStrength,
+        highlightBase.z
+      ),
+      20,
+      delta
+    )
     highlight.visible = eye.scale.y > rig.eyeBaseScaleY * 0.22
   })
 }
@@ -568,10 +812,6 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
     camera.position.set(0, 1.08, 7.3)
     camera.lookAt(0, 0.72, 0)
 
-    // Keep the WebGL surface off-DOM. On some Windows GPU/DWM combinations a
-    // visible WebGL canvas turns the entire layered Electron window black.
-    // Copying the rendered alpha frame to a regular 2D canvas keeps 3D while
-    // presenting a stable transparent surface to the desktop compositor.
     const webglCanvas = document.createElement('canvas')
     const renderer = new THREE.WebGLRenderer({
       canvas: webglCanvas,
@@ -608,6 +848,9 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
     const clock = new THREE.Clock()
     const targetLook = new THREE.Vector2()
     const currentLook = new THREE.Vector2()
+    const cameraTarget = camera.position.clone()
+    const cameraLookTarget = new THREE.Vector3(0, 0.72, 0)
+    const cameraLookCurrent = cameraLookTarget.clone()
 
     let cursorPollInFlight = false
     const mipet = getMipetBridge()
@@ -659,6 +902,14 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
     const renderFrame = () => {
       const delta = Math.min(clock.getDelta(), 0.05)
       currentLook.lerp(targetLook, 0.14)
+      const isEating = actionRef.current === 'eat'
+      cameraTarget.set(0, isEating ? 0.98 : 1.08, isEating ? 8.1 : 7.3)
+      cameraLookTarget.set(0, isEating ? 0.44 : 0.72, isEating ? 0.18 : 0)
+      dampVector(camera.position, cameraTarget, 7, delta)
+      dampVector(cameraLookCurrent, cameraLookTarget, 7, delta)
+      camera.fov = dampNumber(camera.fov, isEating ? 35 : 31, 7, delta)
+      camera.updateProjectionMatrix()
+      camera.lookAt(cameraLookCurrent)
       animateRig(
         rig,
         actionRef.current,
@@ -696,5 +947,5 @@ export function Pet3D({ species, mbti, accent, action }: Pet3DProps) {
     }
   }, [species, mbti, accent])
 
-  return <canvas ref={canvasRef} className="pet-3d-canvas" aria-label={`${mbti} ${species === 'cat' ? '三维猫咪' : '三维狗狗'}`} />
+  return <canvas ref={canvasRef} className="pet-3d-canvas" aria-label={`${mbti} ${species === 'cat' ? '3d cat' : '3d dog'}`} />
 }

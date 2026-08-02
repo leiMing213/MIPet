@@ -14,12 +14,15 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     mimo_base_url: str | None = None
     mimo_api_key: str | None = None
-    mimo_model: str = "mimo"
+    mimo_model: str = "gpt-5.4"
     image2_base_url: str | None = None
     image2_api_key: str | None = None
-    image2_model: str = "gpt-image-2"
+    image2_model: str = "nano-banana-2-lite"
     image2_endpoint: str = "/images/generations"
-    image2_task_base_url: str = "https://www.right.codes/v1"
+    image2_task_base_url: str = "https://www.rightapi.ai/v1"
+    vision_base_url: str | None = None
+    vision_api_key: str | None = None
+    vision_model: str = "gpt-5.4"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", case_sensitive=False)
 

@@ -56,6 +56,7 @@ class Database:
                     owner_mbti TEXT,
                     appearance_mode TEXT NOT NULL,
                     custom_image TEXT,
+                    custom_animation_json TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -143,6 +144,7 @@ class Database:
                 """
             )
             self._migrate_messages_session_id(connection)
+            self._ensure_column(connection, "pets", "custom_animation_json", "TEXT")
 
     def _migrate_messages_session_id(self, connection: sqlite3.Connection) -> None:
         columns = [row[1] for row in connection.execute("PRAGMA table_info(messages)").fetchall()]
@@ -159,6 +161,12 @@ class Database:
                 connection.execute("UPDATE messages SET session_id=? WHERE pet_id=? AND session_id IS NULL", (session_id, pet_id))
         connection.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id DESC)")
 
+    @staticmethod
+    def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
     def upsert_pet(self, snapshot: PetSnapshot) -> PetSnapshot:
         profile = snapshot.profile
         state = snapshot.state
@@ -166,15 +174,18 @@ class Database:
         with self._lock, self.connection() as connection:
             connection.execute(
                 """
-                INSERT INTO pets(id,name,species,mbti,owner_name,owner_mbti,appearance_mode,custom_image,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO pets(id,name,species,mbti,owner_name,owner_mbti,appearance_mode,custom_image,custom_animation_json,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,species=excluded.species,mbti=excluded.mbti,
                     owner_name=excluded.owner_name,owner_mbti=excluded.owner_mbti,
-                    appearance_mode=excluded.appearance_mode,custom_image=excluded.custom_image,updated_at=excluded.updated_at
+                    appearance_mode=excluded.appearance_mode,custom_image=excluded.custom_image,
+                    custom_animation_json=excluded.custom_animation_json,updated_at=excluded.updated_at
                 """,
                 (profile.id, profile.name, profile.species, profile.mbti, profile.owner_name, profile.owner_mbti,
-                 profile.appearance_mode, profile.custom_image, profile.created_at, now),
+                 profile.appearance_mode, profile.custom_image,
+                 json.dumps(profile.custom_animation.model_dump(by_alias=True), ensure_ascii=False) if profile.custom_animation else None,
+                 profile.created_at, now),
             )
             self._upsert_state(connection, profile.id, state, now)
         return snapshot
@@ -220,7 +231,9 @@ class Database:
         profile = PetProfile(
             id=row["id"], name=row["name"], species=row["species"], mbti=row["mbti"],
             owner_name=row["owner_name"], owner_mbti=row["owner_mbti"], appearance_mode=row["appearance_mode"],
-            custom_image=row["custom_image"], created_at=row["created_at"],
+            custom_image=row["custom_image"],
+            custom_animation=json.loads(row["custom_animation_json"]) if row["custom_animation_json"] else None,
+            created_at=row["created_at"],
         )
         state = PetState(
             hunger=row["hunger"], cleanliness=row["cleanliness"], mood=row["mood"], affection=row["affection"],

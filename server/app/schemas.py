@@ -8,10 +8,41 @@ class PetState(BaseModel):
     cleanliness: int = Field(86, ge=0, le=100)
     mood: int = Field(78, ge=0, le=100)
     affection: int = Field(12, ge=0, le=100)
-    action: Literal["idle", "walk", "eat", "pet"] = "idle"
+    action: Literal["idle", "walk", "eat", "pet", "yawn"] = "idle"
     level: int = Field(1, ge=1)
     xp: int = Field(0, ge=0)
     evolution_stage: int = Field(1, ge=1, le=3, alias="evolutionStage")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PetAnimationClip(BaseModel):
+    src: str
+    frame_width: int = Field(alias="frameWidth")
+    frame_height: int = Field(alias="frameHeight")
+    frame_count: int = Field(alias="frameCount")
+    fps: int
+    columns: int | None = None
+    rows: int | None = None
+    loop: bool = True
+    mode: Literal["sheet", "overlay"] | None = None
+    base_src: str | None = Field(None, alias="baseSrc")
+    overlay_src: str | None = Field(None, alias="overlaySrc")
+    overlay_frame_width: int | None = Field(None, alias="overlayFrameWidth")
+    overlay_frame_height: int | None = Field(None, alias="overlayFrameHeight")
+    overlay_offset_x: int | None = Field(None, alias="overlayOffsetX")
+    overlay_offset_y: int | None = Field(None, alias="overlayOffsetY")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PetAnimationPack(BaseModel):
+    version: Literal["v1"] = "v1"
+    idle: PetAnimationClip | None = None
+    walk: PetAnimationClip | None = None
+    eat: PetAnimationClip | None = None
+    pet: PetAnimationClip | None = None
+    yawn: PetAnimationClip | None = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -25,6 +56,7 @@ class PetProfile(BaseModel):
     owner_mbti: str | None = Field(None, alias="ownerMbti")
     appearance_mode: Literal["default", "custom"] = Field("default", alias="appearanceMode")
     custom_image: str | None = Field(None, alias="customImage")
+    custom_animation: PetAnimationPack | None = Field(None, alias="customAnimation")
     created_at: str = Field(alias="createdAt")
 
     model_config = ConfigDict(populate_by_name=True)
@@ -134,12 +166,35 @@ class AppearanceRequest(BaseModel):
     prompt: str
 
 
+class AppearanceGenerateRequest(BaseModel):
+    species: Literal["cat", "dog"]
+    mbti: str
+    image_data_url: str | None = None
+
+
+class SpriteSheetRequest(BaseModel):
+    action: Literal["walk", "eat", "pet", "idle", "yawn"]
+    species: Literal["cat", "dog"]
+    mbti: str
+    reference_image_url: str | None = None
+
+
+class SpriteSheetResponse(BaseModel):
+    status: str
+    task_id: str | None = None
+    clip: PetAnimationClip | None = None
+    message: str | None = None
+
+
 class AppearanceResponse(BaseModel):
     status: str
     image_url: str | None = None
     task_id: str | None = None
     progress: int = 0
     message: str | None = None
+    animation_pack: PetAnimationPack | None = Field(None, alias="animationPack")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # --- MBTI Evolution ---
