@@ -9,11 +9,13 @@ from fastapi.responses import StreamingResponse
 from app.agno.registry import get_or_create_agent
 from app.agno.streaming import agent_stream_to_sse
 from app.database import database
-from app.schemas import AgentPlanRequest, AppearanceRequest, AppearanceResponse, ChatMessage, DecisionRequest, DecisionResponse, GrowthRecord, InteractionEvent, InteractionResult, MemoryItem, PetSnapshot, PetState
+from app.schemas import AgentPlanRequest, AppearanceGenerateRequest, AppearanceRequest, AppearanceResponse, ChatMessage, DecisionRequest, DecisionResponse, GrowthRecord, InteractionEvent, InteractionResult, MemoryItem, PetAnimationPack, PetSnapshot, PetState, SpriteSheetRequest, SpriteSheetResponse
 from app.services.agent import plan
-from app.services.image_gateway import generate_pet_image, query_pet_image_task
+from app.services.animation_builder import enrich_pet_render_assets, normalize_animation_pack, process_sprite_sheet_from_url
+from app.services.image_gateway import build_pet_prompt, build_sprite_sheet_prompt, generate_pet_image, generate_pet_image_default, generate_sprite_sheet, query_pet_image_task
 from app.services.memory import memory_service
 from app.services.model_gateway import local_fallback
+from app.services.vision_gateway import analyze_pet_photo
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def _normalize_snapshot_assets(snapshot: PetSnapshot | None) -> PetSnapshot | None:
+    if snapshot is None:
+        return snapshot
+
+    if snapshot.profile.custom_image:
+        result = await enrich_pet_render_assets({
+            "status": "completed",
+            "image_url": snapshot.profile.custom_image,
+        })
+        image_url = result.get("image_url")
+        if isinstance(image_url, str) and image_url:
+            snapshot.profile.custom_image = image_url
+
+    if snapshot.profile.custom_animation:
+        pack = snapshot.profile.custom_animation.model_dump(by_alias=True, exclude_none=True)
+        normalized_pack = await normalize_animation_pack(pack)
+        if normalized_pack:
+            snapshot.profile.custom_animation = PetAnimationPack.model_validate(normalized_pack)
+    return snapshot
 
 
 @app.get("/health")
@@ -39,12 +62,12 @@ async def save_pet(snapshot: PetSnapshot):
 
 @app.get("/v1/pets/latest", response_model=PetSnapshot | None)
 async def latest_pet():
-    return database.latest_pet()
+    return await _normalize_snapshot_assets(database.latest_pet())
 
 
 @app.get("/v1/pets/{pet_id}", response_model=PetSnapshot | None)
 async def get_pet(pet_id: str):
-    return database.get_pet(pet_id)
+    return await _normalize_snapshot_assets(database.get_pet(pet_id))
 
 
 @app.put("/v1/pets/{pet_id}/state", response_model=PetState)
@@ -164,10 +187,86 @@ async def agent_plan(pet_id: str, request: AgentPlanRequest):
 @app.post("/v1/pets/{pet_id}/appearance", response_model=AppearanceResponse)
 async def generate_appearance(pet_id: str, request: AppearanceRequest):
     result = await generate_pet_image(request.image_data_url, request.prompt)
+    result = await enrich_pet_render_assets(result)
+    return AppearanceResponse(**result)
+
+
+@app.post("/v1/pets/appearance/generate", response_model=AppearanceResponse)
+async def generate_appearance_auto(request: AppearanceGenerateRequest):
+    """Generate pet image. Analyzes photo with vision if provided, then generates."""
+    features = None
+    if request.image_data_url:
+        features = await analyze_pet_photo(request.image_data_url)
+
+    prompt = build_pet_prompt(request.species, request.mbti, features)
+
+    if request.image_data_url:
+        result = await generate_pet_image(request.image_data_url, prompt)
+    else:
+        result = await generate_pet_image_default(prompt)
+    result = await enrich_pet_render_assets(result)
     return AppearanceResponse(**result)
 
 
 @app.get("/v1/pets/{pet_id}/appearance/tasks/{task_id}", response_model=AppearanceResponse)
 async def query_appearance(pet_id: str, task_id: str):
     result = await query_pet_image_task(task_id)
+    result = await enrich_pet_render_assets(result)
     return AppearanceResponse(**result)
+
+
+@app.get("/v1/appearance/tasks/{task_id}", response_model=AppearanceResponse)
+async def query_appearance_global(task_id: str):
+    """Query task without requiring pet_id (for creation flow)."""
+    result = await query_pet_image_task(task_id)
+    result = await enrich_pet_render_assets(result)
+    return AppearanceResponse(**result)
+
+
+@app.post("/v1/appearance/sprite-sheet", response_model=SpriteSheetResponse)
+async def generate_action_sprite_sheet(request: SpriteSheetRequest):
+    """Generate a sprite sheet for a specific action using AI image generation."""
+    character_desc = build_pet_prompt(request.species, request.mbti)
+    prompt = build_sprite_sheet_prompt(request.action, character_desc, request.species)
+    should_loop = request.action not in ("yawn",)
+
+    result = await generate_sprite_sheet(request.reference_image_url, prompt)
+
+    if result.get("status") == "completed" and result.get("image_url"):
+        clip_data = await process_sprite_sheet_from_url(
+            result["image_url"],
+            frame_count=6,
+            loop=should_loop,
+            action=request.action,
+        )
+        return SpriteSheetResponse(status="completed", clip=clip_data)
+
+    return SpriteSheetResponse(
+        status=result.get("status", "in_progress"),
+        task_id=result.get("task_id"),
+        message=result.get("message"),
+    )
+
+
+@app.get("/v1/appearance/sprite-sheet/tasks/{task_id}", response_model=SpriteSheetResponse)
+async def query_sprite_sheet_task(task_id: str, loop: bool = False, action: str | None = None):
+    """Poll a sprite sheet generation task."""
+    result = await query_pet_image_task(task_id)
+
+    if result.get("status") == "completed" and result.get("image_url"):
+        clip_data = await process_sprite_sheet_from_url(
+            result["image_url"],
+            frame_count=6,
+            loop=loop,
+            action=action,
+        )
+        return SpriteSheetResponse(status="completed", clip=clip_data)
+
+    if result.get("status") == "failed":
+        return SpriteSheetResponse(status="failed", task_id=task_id, message=result.get("message"))
+
+    return SpriteSheetResponse(
+        status="in_progress",
+        task_id=task_id,
+        message=result.get("message", f"生成中（{result.get('progress', 0)}%）"),
+    )

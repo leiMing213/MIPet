@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, powerMonitor, screen, shell, Tray } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import type { PetWalkOptions } from '../shared/types'
@@ -14,6 +14,7 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist')
 const PET_WIDTH = 360
 const PET_HEIGHT = 380
 const SCREEN_MARGIN = 12
+const SHARED_APP_DIR_NAME = 'mipet-desktop-pet'
 
 interface SavedPetWindowState {
   x: number
@@ -28,6 +29,80 @@ let dragTimer: NodeJS.Timeout | null = null
 let walkTimer: NodeJS.Timeout | null = null
 let dragOffset = { x: 0, y: 0 }
 let backendProcess: ChildProcess | null = null
+let ownsInstanceFileLock = false
+
+function sharedAppDataPath() {
+  return join(app.getPath('appData'), SHARED_APP_DIR_NAME)
+}
+
+function instanceLockPath() {
+  return join(sharedAppDataPath(), 'instance.lock.json')
+}
+
+function isProcessAlive(pid: number) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function acquireInstanceFileLock() {
+  mkdirSync(sharedAppDataPath(), { recursive: true })
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      writeFileSync(
+        instanceLockPath(),
+        JSON.stringify({ pid: process.pid, startedAt: Date.now() }),
+        { encoding: 'utf8', flag: 'wx' }
+      )
+      ownsInstanceFileLock = true
+      return true
+    } catch (error) {
+      if (!existsSync(instanceLockPath())) continue
+
+      try {
+        const existing = JSON.parse(readFileSync(instanceLockPath(), 'utf8')) as { pid?: number }
+        if (existing.pid === process.pid) {
+          ownsInstanceFileLock = true
+          return true
+        }
+        if (isProcessAlive(existing.pid ?? -1)) return false
+      } catch {
+        // Fall through and recreate the lock file when it is malformed or stale.
+      }
+
+      try {
+        rmSync(instanceLockPath(), { force: true })
+      } catch {
+        return false
+      }
+      if (attempt === 1) {
+        console.error('[MiPet] Failed to acquire instance file lock:', error)
+      }
+    }
+  }
+
+  return false
+}
+
+function releaseInstanceFileLock() {
+  if (!ownsInstanceFileLock) return
+  ownsInstanceFileLock = false
+
+  try {
+    if (!existsSync(instanceLockPath())) return
+    const existing = JSON.parse(readFileSync(instanceLockPath(), 'utf8')) as { pid?: number }
+    if (existing.pid === process.pid) {
+      rmSync(instanceLockPath(), { force: true })
+    }
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
 
 function startBackend() {
   if (backendProcess && backendProcess.exitCode === null) return
@@ -253,10 +328,13 @@ function walkPet(options: PetWalkOptions) {
   if (!petWindow || petWindow.isDestroyed()) return
   stopPetMovement()
   const [startX, startY] = petWindow.getPosition()
-  const direction = options.direction === -1 ? -1 : 1
-  const requestedDistance = direction * Math.min(280, Math.max(60, options.distance || 160))
-  const destination = clampPetPosition(startX + requestedDistance, startY)
-  const distance = destination.x - startX
+  const angle = Number.isFinite(options.angle) ? options.angle : 0
+  const distanceMagnitude = Math.min(280, Math.max(60, options.distance || 160))
+  const offsetX = Math.cos(angle) * distanceMagnitude
+  const offsetY = Math.sin(angle) * distanceMagnitude
+  const destination = clampPetPosition(startX + offsetX, startY + offsetY)
+  const distanceX = destination.x - startX
+  const distanceY = destination.y - startY
   const duration = Math.min(2400, Math.max(500, options.duration || 900))
   const startedAt = Date.now()
 
@@ -264,7 +342,11 @@ function walkPet(options: PetWalkOptions) {
     if (!petWindow || petWindow.isDestroyed()) return stopPetMovement()
     const progress = Math.min(1, (Date.now() - startedAt) / duration)
     const eased = 1 - Math.pow(1 - progress, 3)
-    petWindow.setPosition(Math.round(startX + distance * eased), startY, false)
+    petWindow.setPosition(
+      Math.round(startX + distanceX * eased),
+      Math.round(startY + distanceY * eased),
+      false
+    )
     if (progress >= 1) {
       if (walkTimer) clearInterval(walkTimer)
       walkTimer = null
@@ -301,6 +383,11 @@ function createTray() {
 
 function registerIpc() {
   ipcMain.handle('pet:open', () => {
+    if (petWindow && !petWindow.isDestroyed()) {
+      stopPetMovement()
+      petWindow.close()
+      petWindow = null
+    }
     showPet()
     mainWindow?.hide()
     return true
@@ -338,7 +425,8 @@ function registerIpc() {
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
-if (!hasSingleInstanceLock) app.quit()
+const hasInstanceFileLock = acquireInstanceFileLock()
+if (!hasSingleInstanceLock || !hasInstanceFileLock) app.quit()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.mipet.desktop')
@@ -365,6 +453,7 @@ app.on('before-quit', () => {
   stopPetMovement()
   savePetPosition()
   stopBackend()
+  releaseInstanceFileLock()
 })
 
 // On Windows the app stays alive in the notification area when its windows are hidden.

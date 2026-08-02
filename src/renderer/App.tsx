@@ -23,7 +23,7 @@ import {
   Utensils,
   UserRound
 } from 'lucide-react'
-import type { PetProfile, PetSnapshot, PetState, Species } from '../shared/types'
+import type { PetAnimationPack, PetProfile, PetSnapshot, PetState, Species } from '../shared/types'
 import { personalities, type Personality } from './data/personalities'
 import { speciesMeta } from './data/pets'
 import { getMbtiBehavior } from './data/mbtiBehaviors'
@@ -31,10 +31,13 @@ import { getMbtiGroup, getPetRecommendations, MBTI_GROUPS, MBTI_TYPES, type Mbti
 import { calculatePetMbti, PET_MBTI_QUESTIONS, type PetMbtiResult, type TestAnswer } from './data/petMbtiTest'
 import { calculateUserPetMbti, USER_PET_QUESTIONS, type UserPetResult } from './data/userPetTest'
 import { getMipetBridge } from './mipetBridge'
-import { Pet3D } from './Pet3D'
+import { PetDisplay } from './PetDisplay'
 
 const OWNER_MBTI_LINK = 'https://www.16personalities.com/ch'
 const API_BASE = 'http://127.0.0.1:8787'
+const MAX_STORED_CUSTOM_IMAGE_LENGTH = 120_000
+const MAX_APPEARANCE_RETRIES = 2
+const MAX_APPEARANCE_POLL_ERRORS = 3
 
 type DashboardView = 'home' | 'chat' | 'profile'
 type CareAction = 'pet' | 'feed' | 'clean' | 'walk'
@@ -69,13 +72,29 @@ function normalizePetState(state?: Partial<PetState> | null): PetState {
   return { ...DEFAULT_PET_STATE, ...state }
 }
 
+function compactAnimationPackForStorage(pack?: PetAnimationPack): PetAnimationPack | undefined {
+  return pack
+}
+
+function compactProfileForStorage(profile: PetProfile): PetProfile {
+  return profile
+}
+
 function saveProfile(profile: PetProfile) {
-  localStorage.setItem('mipet:profile', JSON.stringify(profile))
+  try {
+    localStorage.setItem('mipet:profile', JSON.stringify(compactProfileForStorage(profile)))
+  } catch (error) {
+    console.warn('[MiPet] Failed to cache pet profile locally:', error)
+  }
 }
 
 function getProfile(): PetProfile | null {
-  const raw = localStorage.getItem('mipet:profile')
-  return raw ? JSON.parse(raw) as PetProfile : null
+  try {
+    const raw = localStorage.getItem('mipet:profile')
+    return raw ? compactProfileForStorage(JSON.parse(raw) as PetProfile) : null
+  } catch {
+    return null
+  }
 }
 
 function saveState(state: PetState) {
@@ -159,18 +178,23 @@ function MainWindow() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const snapshot = await loadLatestSnapshot()
-      if (cancelled) return
-      if (snapshot) {
-        saveProfile(snapshot.profile)
-        saveState(normalizePetState(snapshot.state))
-        setProfile(snapshot.profile)
-        void mipet.openPet(snapshot.profile)
-      } else if (cachedProfile) {
-        void saveSnapshot({ profile: cachedProfile, state: getState() }).catch(() => undefined)
-        void mipet.openPet(cachedProfile)
+      try {
+        const snapshot = await loadLatestSnapshot()
+        if (cancelled) return
+        if (snapshot) {
+          saveProfile(snapshot.profile)
+          saveState(normalizePetState(snapshot.state))
+          setProfile(snapshot.profile)
+          void mipet.openPet(snapshot.profile)
+        } else if (cachedProfile) {
+          void saveSnapshot({ profile: cachedProfile, state: getState() }).catch(() => undefined)
+          void mipet.openPet(cachedProfile)
+        }
+      } catch (error) {
+        console.error('[MiPet] Failed to initialize main window:', error)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      setLoading(false)
     })()
     return () => { cancelled = true }
   }, [])
@@ -272,7 +296,7 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
       const [minDistance, maxDistance] = behavior.walkDistance
       const [minDuration, maxDuration] = behavior.walkDuration
       mipet.walkPet({
-        direction: Math.random() > 0.5 ? 1 : -1,
+        angle: Math.random() * Math.PI * 2,
         distance: minDistance + Math.random() * (maxDistance - minDistance),
         duration: minDuration + Math.random() * (maxDuration - minDuration)
       })
@@ -389,7 +413,7 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
           <button className={view === 'profile' ? 'active' : ''} onClick={() => setView('profile')}><UserRound size={18} />宠物档案</button>
         </nav>
         <div className="sidebar-pet">
-          <span className="sidebar-avatar"><Pet3D species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" /></span>
+          <span className="sidebar-avatar"><PetDisplay species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" customImage={profile.customImage} customAnimation={profile.customAnimation} /></span>
           <div><strong>{profile.name}</strong><small><i />正在桌面陪你</small></div>
         </div>
       </aside>
@@ -406,7 +430,7 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
               <div className="summary-copy"><span className="status-kicker">今日状态</span><h1>{state.mood >= 75 ? '心情很好，' : '安安静静，'}<br />正在等你。</h1><p>{feedback || `${profile.name}今天已经在桌面陪着你了。想起它的时候，过来摸摸就好。`}</p><button onClick={() => setView('chat')}>去说句话 <ChevronRight size={16} /></button></div>
               <div className="summary-pet" style={{ '--pet-accent': mbtiGroup.color } as React.CSSProperties}>
                 <div className="summary-pet-floor" />
-                <Pet3D species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action={state.action} />
+                <PetDisplay species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action={state.action} customImage={profile.customImage} customAnimation={profile.customAnimation} />
                 <small>Lv.{state.level} · {mbti.name}</small>
               </div>
             </section>
@@ -442,7 +466,7 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
         {view === 'chat' && (
           <div className="dashboard-content chat-dashboard">
             <section className="conversation-card">
-              <div className="conversation-person"><span className="conversation-pet-avatar"><Pet3D species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" /></span><div><strong>{profile.name}</strong><small>{profile.mbti} · {mbti.name}</small></div></div>
+              <div className="conversation-person"><span className="conversation-pet-avatar"><PetDisplay species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" customImage={profile.customImage} customAnimation={profile.customAnimation} /></span><div><strong>{profile.name}</strong><small>{profile.mbti} · {mbti.name}</small></div></div>
               <div className="message-list">
                 {messages.length === 0 && <div className="empty-conversation"><MessageCircle size={27} /><strong>从一句简单的话开始</strong><span>它会记住你们慢慢聊过的事情。</span><div><button onClick={() => setInput('今天过得怎么样？')}>今天过得怎么样？</button><button onClick={() => setInput('陪我待一会儿')}>陪我待一会儿</button></div></div>}
                 {messages.map(message => <div key={message.id} className={`message-row ${message.role}`}><span>{message.content}</span></div>)}
@@ -456,7 +480,7 @@ function Dashboard({ profile, onEdit, onProfileUpdate }: {
         {view === 'profile' && (
           <div className="dashboard-content profile-dashboard">
             <section className="profile-card">
-              <div className="profile-portrait" style={{ '--pet-accent': mbtiGroup.color } as React.CSSProperties}><Pet3D species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" /><small>{profile.species === 'cat' ? '猫咪' : '狗狗'} · {profile.mbti} · {mbtiGroup.name}</small></div>
+              <div className="profile-portrait" style={{ '--pet-accent': mbtiGroup.color } as React.CSSProperties}><PetDisplay species={profile.species} mbti={profile.mbti} accent={mbtiGroup.color} action="idle" customImage={profile.customImage} customAnimation={profile.customAnimation} /><small>{profile.species === 'cat' ? '猫咪' : '狗狗'} · {profile.mbti} · {mbtiGroup.name}</small></div>
               <div className="profile-form">
                 <div className="card-heading"><div><span>基本信息</span><small>修改后会同步到桌面</small></div><Pencil size={18} /></div>
                 <label>宠物名字<input value={draftName} onChange={event => setDraftName(event.target.value)} /></label>
@@ -484,14 +508,19 @@ function Onboarding({ existing, onComplete, onCancel }: {
   onCancel?: () => void
 }) {
   const mipet = getMipetBridge()
+  const isEditingExisting = Boolean(existing)
   const [step, setStep] = useState(existing ? 2 : 1)
   const [ownerName, setOwnerName] = useState(existing?.ownerName ?? '')
   const [ownerMbti, setOwnerMbti] = useState(existing?.ownerMbti ?? '')
   const [species, setSpecies] = useState<Species>(existing?.species ?? 'cat')
   const [selected, setSelected] = useState<Personality>(personalities.find(p => p.type === existing?.mbti) ?? personalities[0])
-  const [appearanceMode, setAppearanceMode] = useState<'default' | 'custom'>(existing?.appearanceMode ?? 'default')
-  const [customImage, setCustomImage] = useState(existing?.customImage)
+  const [appearanceMode, setAppearanceMode] = useState<'default' | 'custom'>('default')
+  const [customImage, setCustomImage] = useState<string | undefined>(undefined)
+  const [customAnimation, setCustomAnimation] = useState<PetAnimationPack | undefined>(existing?.customAnimation)
+  const [referenceImage, setReferenceImage] = useState<string | undefined>(undefined)
   const [appearanceStatus, setAppearanceStatus] = useState('')
+  const [isAppearanceGenerating, setIsAppearanceGenerating] = useState(false)
+  const [isSpriteGenerating, setIsSpriteGenerating] = useState(false)
   const [petName, setPetName] = useState(existing?.name ?? '')
   const [ownerError, setOwnerError] = useState('')
   const [testOpen, setTestOpen] = useState(false)
@@ -506,15 +535,55 @@ function Onboarding({ existing, onComplete, onCancel }: {
   const recommendations = useMemo(() => getPetRecommendations(ownerMbti), [ownerMbti])
   const recommendedTypes = useMemo(() => new Set(recommendations.map(item => item.type)), [recommendations])
   const ownerMbtiPersonality = ownerMbti ? personalities.find(item => item.type === ownerMbti) : null
+  const hasGeneratedAppearance = Boolean(customImage || customAnimation)
+  const shouldShowAppearancePlaceholder = (!hasGeneratedAppearance && isAppearanceGenerating) || (appearanceMode === 'custom' && !hasGeneratedAppearance && Boolean(referenceImage))
 
   useEffect(() => {
     if (!ownerMbti) return
     setOpenMbtiGroup(getMbtiGroup(ownerMbti).id)
   }, [ownerMbti])
 
+  useEffect(() => {
+    if (!isEditingExisting) return
+    setAppearanceMode('default')
+    setCustomImage(undefined)
+    setCustomAnimation(undefined)
+    setReferenceImage(undefined)
+    setIsAppearanceGenerating(false)
+    setAppearanceStatus('已重置上一轮形象，请重新生成或重新上传参考图')
+  }, [isEditingExisting])
+
+  useEffect(() => {
+    if (customImage || customAnimation) setIsAppearanceGenerating(false)
+  }, [customAnimation, customImage])
+
+  useEffect(() => {
+    if (!appearanceStatus) return
+    if (
+      appearanceStatus.includes('失败') ||
+      appearanceStatus.includes('不可用') ||
+      appearanceStatus.includes('较长') ||
+      appearanceStatus.includes('完成')
+    ) {
+      setIsAppearanceGenerating(false)
+    }
+  }, [appearanceStatus])
+
+  useEffect(() => {
+    if (appearanceStatus.includes('3D')) {
+      setIsAppearanceGenerating(false)
+    }
+  }, [appearanceStatus])
+
   function choosePersonality(personality: Personality) {
     setSelected(personality)
     setOpenMbtiGroup(getMbtiGroup(personality.type).id)
+    setAppearanceMode('default')
+    setCustomImage(undefined)
+    setCustomAnimation(undefined)
+    setReferenceImage(undefined)
+    setIsAppearanceGenerating(false)
+    setAppearanceStatus('')
   }
 
   function next() {
@@ -522,58 +591,182 @@ function Onboarding({ existing, onComplete, onCancel }: {
       setOwnerError('先告诉我应该怎么称呼你')
       return
     }
+    if (step === 4 && isAppearanceGenerating) {
+      setAppearanceStatus('形象生成中，请耐心等待生成完成后再继续')
+      return
+    }
+    if (step === 4 && isSpriteGenerating) {
+      setAppearanceStatus('动作帧生成中，请耐心等待完成后再继续')
+      return
+    }
+    if (step === 4 && appearanceMode === 'custom' && !hasGeneratedAppearance) {
+      setAppearanceStatus(referenceImage ? '已上传参考图，正在等待生成结果，请耐心等待' : '请先上传一张参考图片再生成形象')
+      return
+    }
     setOwnerError('')
     setStep(s => Math.min(5, s + 1))
   }
 
-  async function pollAppearanceTask(taskId: string) {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      await new Promise(resolve => window.setTimeout(resolve, 3000))
-      try {
-        const response = await fetch(`http://127.0.0.1:8787/v1/pets/appearance/appearance/tasks/${encodeURIComponent(taskId)}`)
-        if (!response.ok) throw new Error('task query failed')
-        const result = await response.json() as { status: string; image_url?: string; progress?: number; message?: string }
-        setAppearanceStatus(result.message ?? `正在生成专属形象（${result.progress ?? 0}%）`)
-        if (result.status === 'completed' && result.image_url) {
-          setCustomImage(result.image_url)
-          setAppearanceStatus('专属形象生成完成')
-          return
-        }
-        if (result.status === 'failed') {
-          setAppearanceStatus(result.message ?? '图片生成失败，已保留原图预览')
-          return
-        }
-      } catch {
-        setAppearanceStatus('任务查询暂时失败，将继续保留原图预览')
-        continue
-      }
-    }
-    setAppearanceStatus('生成时间较长，可稍后重新上传或查询任务')
-  }
+  async function generateActionSpriteSheets(personality: Personality, referenceImageUrl?: string) {
+    void personality
+    void referenceImageUrl
+    setIsSpriteGenerating(false)
+    setAppearanceStatus('全部生成完成，可以继续')
+    return
 
-  async function requestAppearance(imageDataUrl: string, personality: Personality) {
-    setAppearanceStatus(`正在按 ${personality.type} 特征生成专属形象…`)
+    const action = 'yawn'
+    setIsSpriteGenerating(true)
+    setAppearanceStatus(`正在生成${species === 'cat' ? '打哈欠' : '吐舌头'}动作帧…`)
     try {
-      const group = getMbtiGroup(personality.type)
-      const response = await fetch('http://127.0.0.1:8787/v1/pets/appearance/appearance', {
+      const response = await fetch(`${API_BASE}/v1/appearance/sprite-sheet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image_data_url: imageDataUrl,
-          prompt: `Create a polished desktop pet portrait based on this ${species} photo. Preserve the animal's recognizable fur colors, markings, face shape and eyes. Personality: ${personality.type}, ${personality.name}. ${personality.description}. Add a subtle ${group.name} accent in ${group.color}. Clean transparent-looking background, centered, warm studio lighting, suitable for a desktop companion.`,
+          action,
+          species,
+          mbti: personality.type,
+          reference_image_url: referenceImageUrl ?? null,
         })
       })
-      if (!response.ok) throw new Error('appearance request failed')
-      const result = await response.json() as { status: string; image_url?: string; task_id?: string; progress?: number; message?: string }
-      if (result.task_id && !result.image_url) void pollAppearanceTask(result.task_id)
-      if (result.image_url) {
-        setCustomImage(result.image_url)
-        setAppearanceStatus('专属形象生成完成')
+      if (!response.ok) {
+        setIsSpriteGenerating(false)
+        setAppearanceStatus('动作帧生成请求失败')
+        return
+      }
+      const result = await response.json() as { status: string; task_id?: string; clip?: PetAnimationClip }
+      if (result.status === 'completed' && result.clip) {
+        setCustomAnimation(prev => ({ version: 'v1', ...prev, [action]: result.clip }))
+        setIsSpriteGenerating(false)
+        setAppearanceStatus('全部生成完成，可以继续')
+      } else if (result.task_id) {
+        void pollSpriteSheetTask(result.task_id, action)
       } else {
-        setAppearanceStatus(`${result.message ?? `图片生成任务已提交（${result.progress ?? 0}%）`}${result.task_id ? ` · ${result.task_id}` : ''}`)
+        setIsSpriteGenerating(false)
+        setAppearanceStatus('动作帧生成失败')
       }
     } catch {
-      setAppearanceStatus('已保留原图预览，图像服务暂时不可用')
+      setIsSpriteGenerating(false)
+      setAppearanceStatus('动作帧生成失败')
+    }
+  }
+
+  async function pollSpriteSheetTask(taskId: string, action: string) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise(resolve => window.setTimeout(resolve, 3000))
+      try {
+        const response = await fetch(`${API_BASE}/v1/appearance/sprite-sheet/tasks/${encodeURIComponent(taskId)}?action=${encodeURIComponent(action)}`)
+        if (!response.ok) continue
+        const result = await response.json() as { status: string; clip?: PetAnimationClip; message?: string }
+        setAppearanceStatus(result.message ?? `动作帧生成中（${attempt + 1}/30）…`)
+        if (result.status === 'completed' && result.clip) {
+          setCustomAnimation(prev => ({ version: 'v1', ...prev, [action]: result.clip }))
+          setIsSpriteGenerating(false)
+          setAppearanceStatus('全部生成完成，可以继续')
+          return
+        }
+        if (result.status === 'failed') {
+          setIsSpriteGenerating(false)
+          setAppearanceStatus(result.message ?? '动作帧生成失败')
+          return
+        }
+      } catch {
+        continue
+      }
+    }
+    setIsSpriteGenerating(false)
+    setAppearanceStatus('动作帧生成超时')
+  }
+
+  async function pollAppearanceTask(taskId: string, imageDataUrl: string | null, personality: Personality, retryCount = 0) {
+    let pollErrorCount = 0
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await new Promise(resolve => window.setTimeout(resolve, 3000))
+      try {
+        const response = await fetch(`${API_BASE}/v1/appearance/tasks/${encodeURIComponent(taskId)}`)
+        if (!response.ok) throw new Error('task query failed')
+        const result = await response.json() as { status: string; image_url?: string; progress?: number; message?: string; animation_pack?: PetAnimationPack; animationPack?: PetAnimationPack }
+        pollErrorCount = 0
+        setAppearanceStatus(result.message ?? `正在生成专属形象（${result.progress ?? 0}%）`)
+        const animationPack = result.animationPack ?? result.animation_pack
+        const hasAnimationPack = Boolean(animationPack?.idle || animationPack?.walk || animationPack?.eat || animationPack?.pet || animationPack?.yawn)
+        if (result.status === 'completed' && (result.image_url || hasAnimationPack)) {
+          setCustomImage(result.image_url)
+          setCustomAnimation(animationPack)
+          setIsAppearanceGenerating(false)
+          setAppearanceStatus('专属形象生成完成，正在生成动作帧…')
+          setAppearanceStatus('全部生成完成，可以继续')
+          return
+        }
+        if (result.status === 'failed') {
+          if (retryCount < MAX_APPEARANCE_RETRIES) {
+            setAppearanceStatus(`生成失败，正在自动重试（${retryCount + 1}/${MAX_APPEARANCE_RETRIES}）…`)
+            void requestAppearance(imageDataUrl, personality, retryCount + 1)
+          } else {
+            setIsAppearanceGenerating(false)
+            setAppearanceStatus(result.message ?? '图片生成失败，请稍后重试')
+          }
+          return
+        }
+      } catch {
+        pollErrorCount += 1
+        if (pollErrorCount >= MAX_APPEARANCE_POLL_ERRORS) {
+          if (retryCount < MAX_APPEARANCE_RETRIES) {
+            setAppearanceStatus(`查询异常，正在自动重试（${retryCount + 1}/${MAX_APPEARANCE_RETRIES}）…`)
+            void requestAppearance(imageDataUrl, personality, retryCount + 1)
+          } else {
+            setIsAppearanceGenerating(false)
+            setAppearanceStatus('网络异常，请稍后重试')
+          }
+          return
+        }
+        continue
+      }
+    }
+    setIsAppearanceGenerating(false)
+    setAppearanceStatus('生成时间较长，可稍后重新尝试')
+  }
+
+  async function requestAppearance(imageDataUrl: string | null, personality: Personality, retryCount = 0) {
+    setIsAppearanceGenerating(true)
+    setCustomImage(undefined)
+    setCustomAnimation(undefined)
+    if (retryCount === 0) {
+      setAppearanceStatus(`正在按 ${personality.type} 特征生成专属形象…`)
+    }
+    try {
+      const response = await fetch(`${API_BASE}/v1/pets/appearance/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          species,
+          mbti: personality.type,
+          image_data_url: imageDataUrl,
+        })
+      })
+      if (!response.ok) {
+        if (retryCount < MAX_APPEARANCE_RETRIES) {
+          setAppearanceStatus(`请求失败，正在自动重试（${retryCount + 1}/${MAX_APPEARANCE_RETRIES}）…`)
+          await new Promise(resolve => window.setTimeout(resolve, 2000))
+          return requestAppearance(imageDataUrl, personality, retryCount + 1)
+        }
+        throw new Error('appearance request failed')
+      }
+      const result = await response.json() as { status: string; image_url?: string; task_id?: string; progress?: number; message?: string; animation_pack?: PetAnimationPack; animationPack?: PetAnimationPack }
+      const animationPack = result.animationPack ?? result.animation_pack
+      const hasAnimationPack = Boolean(animationPack?.idle || animationPack?.walk || animationPack?.eat || animationPack?.pet || animationPack?.yawn)
+      if (result.task_id && !result.image_url && !hasAnimationPack) void pollAppearanceTask(result.task_id, imageDataUrl, personality, retryCount)
+      if (result.image_url || hasAnimationPack) {
+        setCustomImage(result.image_url)
+        setCustomAnimation(animationPack)
+        setIsAppearanceGenerating(false)
+        setAppearanceStatus('专属形象生成完成，正在生成动作帧…')
+        void generateActionSpriteSheets(personality, result.image_url)
+      } else {
+        setAppearanceStatus(result.message ?? `图片生成任务已提交（${result.progress ?? 0}%）`)
+      }
+    } catch {
+      setIsAppearanceGenerating(false)
+      setAppearanceStatus('图像服务暂时不可用，将使用默认 3D 形象')
     }
   }
 
@@ -581,9 +774,10 @@ function Onboarding({ existing, onComplete, onCancel }: {
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
-      setCustomImage(String(reader.result))
+      const dataUrl = String(reader.result)
+      setReferenceImage(dataUrl)
       setAppearanceMode('custom')
-      void requestAppearance(String(reader.result), selected)
+      void requestAppearance(dataUrl, selected)
     }
     reader.readAsDataURL(file)
   }
@@ -612,6 +806,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
       ownerMbti: ownerMbti || null,
       appearanceMode,
       customImage,
+      customAnimation,
       createdAt: existing?.createdAt ?? new Date().toISOString()
     }
     const state = existing ? getState() : { ...DEFAULT_PET_STATE }
@@ -703,7 +898,19 @@ function Onboarding({ existing, onComplete, onCancel }: {
             <div className="section-intro"><div className="eyebrow">STEP 02 / SPECIES</div><h2>你想和谁一起生活？</h2><p>不同物种有不同的动作风格和表情系统，选好之后还能定制外貌。</p></div>
             <div className="species-grid">
               {(Object.keys(speciesMeta) as Species[]).map(key => (
-                <button key={key} className={`species-card ${species === key ? 'selected' : ''}`} onClick={() => setSpecies(key)}>
+                <button
+                  key={key}
+                  className={`species-card ${species === key ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSpecies(key)
+                    setAppearanceMode('default')
+                    setCustomImage(undefined)
+                    setCustomAnimation(undefined)
+                    setReferenceImage(undefined)
+                    setIsAppearanceGenerating(false)
+                    setAppearanceStatus('')
+                  }}
+                >
                   <div className="species-emoji">{speciesMeta[key].emoji}</div>
                   <div className="species-label">{speciesMeta[key].label}</div>
                   <div className="species-subtitle">{speciesMeta[key].subtitle}</div>
@@ -746,7 +953,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
                   </button>
                 </div>
                 <div className="personality-preview-strip">
-                  <div className="preview-strip-pet"><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div>
+                  <div className="preview-strip-pet"><PetDisplay species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div>
                   <div className="preview-strip-info">
                     <div className="preview-strip-tag" style={{ background: selectedGroup.softColor, color: selectedGroup.color }}>{selectedGroup.name}</div>
                     <strong>{selected.type} · {selected.name}</strong>
@@ -828,21 +1035,31 @@ function Onboarding({ existing, onComplete, onCancel }: {
 
         {step === 4 && (
           <section className="selection-section">
-            <div className="section-intro"><div className="eyebrow">STEP 04 / APPEARANCE</div><h2>它长什么样？</h2><p>可以直接用我们设计的 3D 形象，也可以上传你家宠物的照片来定制。</p></div>
+            <div className="section-intro"><div className="eyebrow">STEP 04 / APPEARANCE</div><h2>它长什么样？</h2><p>AI 会根据物种和性格生成专属形象，也可以上传真实宠物照片作为参考。</p></div>
             <div className="appearance-workspace">
               <section className="appearance-preview-panel" style={previewStyle}>
-                <div className="appearance-preview-stage"><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div>
+                <div className={`appearance-preview-stage ${shouldShowAppearancePlaceholder ? 'is-blocked' : ''}`}>
+                  {shouldShowAppearancePlaceholder ? (
+                    <div className="appearance-loading">
+                      <div className="appearance-loading-orb" />
+                      <strong>{isAppearanceGenerating ? '形象生成中' : '等待生成结果'}</strong>
+                      <span>{appearanceStatus || '已提交给生图模型，请耐心等待。'}</span>
+                    </div>
+                  ) : (
+                    <PetDisplay species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" customImage={customImage} customAnimation={customAnimation} />
+                  )}
+                </div>
                 <div className="appearance-preview-meta"><span>{species === 'cat' ? '猫咪' : '狗狗'}</span><strong>{selected.type} · {selected.name}</strong><small>{selectedGroup.name}代表色 · 专属装饰</small></div>
               </section>
               <section className="appearance-choice-panel">
-                <button className={`appearance-option-row ${appearanceMode === 'default' ? 'selected' : ''}`} type="button" onClick={() => setAppearanceMode('default')}>
+                <button className={`appearance-option-row ${appearanceMode === 'default' ? 'selected' : ''}`} type="button" onClick={() => { if (appearanceMode !== 'default') { setAppearanceMode('default'); setCustomImage(undefined); setCustomAnimation(undefined); setReferenceImage(undefined); void requestAppearance(null, selected) } }}>
                   <span className="appearance-option-icon"><Sparkles size={19} /></span>
-                  <div><strong>使用动态 3D 形象</strong><small>直接按当前人格生成桌宠外观和动作</small></div>
+                  <div><strong>AI 生成形象</strong><small>根据物种和性格自动生成可爱桌宠图片</small></div>
                   {appearanceMode === 'default' && <Check size={18} />}
                 </button>
                 <button className={`appearance-option-row ${appearanceMode === 'custom' ? 'selected' : ''}`} type="button" onClick={() => setAppearanceMode('custom')}>
                   <span className="appearance-option-icon"><Camera size={19} /></span>
-                  <div><strong>上传真实宠物照片</strong><small>上传照片作为参考，生成专属形象</small></div>
+                  <div><strong>上传真实宠物照片</strong><small>以你的宠物为原型，AI 生成桌宠形象</small></div>
                   {appearanceMode === 'custom' && <Check size={18} />}
                 </button>
                 {appearanceMode === 'custom' && (
@@ -853,9 +1070,9 @@ function Onboarding({ existing, onComplete, onCancel }: {
                     onDrop={event => { event.preventDefault(); event.currentTarget.classList.remove('drag-over'); handlePhoto(event.dataTransfer.files?.[0]) }}
                   >
                     <input type="file" accept="image/*" onChange={event => handlePhoto(event.target.files?.[0])} />
-                    {customImage ? (
+                    {referenceImage ? (
                       <div className="dropzone-preview">
-                        <img src={customImage} alt="宠物照片" />
+                        <img src={referenceImage} alt="宠物照片" />
                         <span>点击或拖拽更换照片</span>
                       </div>
                     ) : (
@@ -874,7 +1091,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
           </section>
         )}
 
-        {step === 5 && <section className="adopt-section"><div className="adopt-preview"><div className="generated-pet big" style={previewStyle}><Pet3D species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" /></div><div className="preview-badge" style={{ borderColor: selectedGroup.color, color: selectedGroup.color }}>{selected.type} · {selected.name} · {selectedGroup.name}</div>{appearanceMode === 'custom' && customImage && <div className="source-note">已参考你上传的真实宠物照片</div>}</div><div className="adopt-copy"><div className="eyebrow">ONE LAST THING</div><h2>给它一个名字，<br />让它真正来到你的桌面。</h2><p>它会带着 {selected.name} 的性格底色、{selectedGroup.name}的代表色和专属装饰，慢慢记住你们共同经历的每件小事。</p><input className="text-input" placeholder="给它起个名字" value={petName} onChange={e => setPetName(e.target.value)} autoFocus /><button className="primary-button full" onClick={adopt}>开始共同生活 <Sparkles size={17} /></button><button className="text-button" onClick={() => setStep(4)}>返回修改形象</button></div></section>}
+        {step === 5 && <section className="adopt-section"><div className="adopt-preview"><div className="generated-pet big" style={previewStyle}><PetDisplay species={species} mbti={selected.type} accent={selectedGroup.color} action="idle" customImage={customImage} customAnimation={customAnimation} /></div><div className="preview-badge" style={{ borderColor: selectedGroup.color, color: selectedGroup.color }}>{selected.type} · {selected.name} · {selectedGroup.name}</div>{appearanceMode === 'custom' && (customImage || customAnimation) && <div className="source-note">已参考你上传的真实宠物照片</div>}</div><div className="adopt-copy"><div className="eyebrow">ONE LAST THING</div><h2>给它一个名字，<br />让它真正来到你的桌面。</h2><p>它会带着 {selected.name} 的性格底色、{selectedGroup.name}的代表色和专属装饰，慢慢记住你们共同经历的每件小事。</p><input className="text-input" placeholder="给它起个名字" value={petName} onChange={e => setPetName(e.target.value)} autoFocus /><button className="primary-button full" onClick={adopt}>开始共同生活 <Sparkles size={17} /></button><button className="text-button" onClick={() => setStep(4)}>返回修改形象</button></div></section>}
         </div>
       </section>
       {testOpen && <PetMbtiTestDialog species={species} onCancel={() => { setTestOpen(false); setPersonalityPath(null); setTestType(null) }} onComplete={completePetTest} />}
@@ -1075,7 +1292,7 @@ function LegacyPetWindow() {
     }
   }
 
-  return <main className={`pet-stage action-${state.action}`} style={{ '--pet-accent': mbti.accent } as React.CSSProperties}><button className="pet-close" onClick={() => mipet.openPanel()} aria-label="打开控制面板">＋</button><div className="pet-bubble">{message || `${profile.name} · ${profile.mbti}`}</div><div className="pet-character" onDoubleClick={() => mipet.openPanel()} onClick={pet}><div className="pet-shadow" /><div className="pet-glow" /><Pet3D species={profile.species} mbti={profile.mbti} accent={mbti.accent} action={state.action} /></div>{chatOpen && <form className="chat-panel" onSubmit={sendChat}><input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder={`和${profile.name}说点什么…`} /><button type="submit">发送</button></form>}<div className="pet-actions"><button onClick={() => setChatOpen(v => !v)}>聊天</button><button onClick={feed}>喂食</button><button onClick={clean}>清理</button><button onClick={() => act('walk', `${profile.name}在桌面上走了一圈。`)}>走走</button></div><div className="pet-stats"><span>饥饿 {state.hunger}</span><span>清洁 {state.cleanliness}</span><span>亲密 {state.affection}</span></div></main>
+  return <main className={`pet-stage action-${state.action}`} style={{ '--pet-accent': mbti.accent } as React.CSSProperties}><button className="pet-close" onClick={() => mipet.openPanel()} aria-label="打开控制面板">＋</button><div className="pet-bubble">{message || `${profile.name} · ${profile.mbti}`}</div><div className="pet-character" onDoubleClick={() => mipet.openPanel()} onClick={pet}><div className="pet-shadow" /><div className="pet-glow" /><PetDisplay species={profile.species} mbti={profile.mbti} accent={mbti.accent} action={state.action} customImage={profile.customImage} customAnimation={profile.customAnimation} /></div>{chatOpen && <form className="chat-panel" onSubmit={sendChat}><input autoFocus value={input} onChange={e => setInput(e.target.value)} placeholder={`和${profile.name}说点什么…`} /><button type="submit">发送</button></form>}<div className="pet-actions"><button onClick={() => setChatOpen(v => !v)}>聊天</button><button onClick={feed}>喂食</button><button onClick={clean}>清理</button><button onClick={() => act('walk', `${profile.name}在桌面上走了一圈。`)}>走走</button></div><div className="pet-stats"><span>饥饿 {state.hunger}</span><span>清洁 {state.cleanliness}</span><span>亲密 {state.affection}</span></div></main>
 }
 
 function PetWindow() {
@@ -1106,12 +1323,29 @@ function PetWindow() {
   useEffect(() => { stateRef.current = state }, [state])
 
   useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const snapshot = await loadLatestSnapshot()
+        if (cancelled || !snapshot) return
+        const nextState = normalizePetState(snapshot.state)
+        saveState(nextState)
+        setState(nextState)
+        setProfile(snapshot.profile)
+      } catch (error) {
+        console.warn('[MiPet] Failed to sync pet window profile:', error)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
     const syncPanelChanges = (event: StorageEvent) => {
       if (event.key === 'mipet:state' && event.newValue) {
         try { setState(normalizePetState(JSON.parse(event.newValue) as PetState)) } catch { /* keep current state */ }
       }
       if (event.key === 'mipet:profile' && event.newValue) {
-        try { setProfile(JSON.parse(event.newValue) as PetProfile) } catch { /* keep current profile */ }
+        try { setProfile(compactProfileForStorage(JSON.parse(event.newValue) as PetProfile)) } catch { /* keep current profile */ }
       }
     }
     window.addEventListener('storage', syncPanelChanges)
@@ -1192,6 +1426,30 @@ function PetWindow() {
   }), [])
 
   useEffect(() => {
+    if (!profile || profile.appearanceMode === 'custom') return
+    const timer = window.setInterval(() => {
+      if (isDraggingRef.current || isStreaming) return
+      const current = stateRef.current
+      if (current.action !== 'idle') return
+      const next = { ...current, action: 'yawn' as const }
+      stateRef.current = next
+      setState(next)
+      saveState(next)
+      if (actionTimer.current) window.clearTimeout(actionTimer.current)
+      actionTimer.current = window.setTimeout(() => {
+        setState(latest => {
+          if (latest.action !== 'yawn') return latest
+          const idle = { ...latest, action: 'idle' as const }
+          stateRef.current = idle
+          saveState(idle)
+          return idle
+        })
+      }, 2600)
+    }, 10000)
+    return () => window.clearInterval(timer)
+  }, [isStreaming, profile])
+
+  useEffect(() => {
     if (isStreaming || !message) return
 
     const dismiss = () => {
@@ -1253,7 +1511,7 @@ function PetWindow() {
           saveState(next)
           void persistPetState(profile.id, next, 'walk').catch(() => undefined)
           mipet.walkPet({
-            direction: Math.random() > 0.5 ? 1 : -1,
+            angle: Math.random() * Math.PI * 2,
             distance: minDistance + Math.random() * (maxDistance - minDistance),
             duration: minDuration + Math.random() * (maxDuration - minDuration)
           })
@@ -1308,7 +1566,7 @@ function PetWindow() {
     if (messageTimer.current) window.clearTimeout(messageTimer.current)
     messageTimer.current = window.setTimeout(() => setMessage(''), 2600)
     if (actionTimer.current) window.clearTimeout(actionTimer.current)
-    if (action === 'eat' || action === 'pet') {
+    if (action === 'eat' || action === 'pet' || action === 'yawn') {
       actionTimer.current = window.setTimeout(() => {
         setState(current => {
           const idle = { ...current, action: 'idle' as const }
@@ -1317,7 +1575,7 @@ function PetWindow() {
           void persistPetState(stableProfile.id, idle).catch(() => undefined)
           return idle
         })
-      }, action === 'eat' ? 3600 / behavior.animationSpeed : 2300 / behavior.animationSpeed)
+      }, action === 'eat' ? 3600 / behavior.animationSpeed : action === 'yawn' ? 2600 / behavior.animationSpeed : 2300 / behavior.animationSpeed)
     }
   }
 
@@ -1381,7 +1639,7 @@ function PetWindow() {
     const [minDistance, maxDistance] = behavior.walkDistance
     const [minDuration, maxDuration] = behavior.walkDuration
     mipet.walkPet({
-      direction: Math.random() > 0.5 ? 1 : -1,
+      angle: Math.random() * Math.PI * 2,
       distance: minDistance + Math.random() * (maxDistance - minDistance),
       duration: minDuration + Math.random() * (maxDuration - minDuration)
     })
@@ -1506,7 +1764,7 @@ function PetWindow() {
       >
         <div className="pet-shadow" />
         <div className="pet-glow" />
-        <Pet3D species={stableProfile.species} mbti={stableProfile.mbti} accent={mbtiGroup.color} action={state.action} />
+        <PetDisplay species={stableProfile.species} mbti={stableProfile.mbti} accent={mbtiGroup.color} action={state.action} customImage={stableProfile.customImage} customAnimation={stableProfile.customAnimation} />
         <div className="pet-name-tag">{stableProfile.name} · {stableProfile.mbti}</div>
       </div>
 

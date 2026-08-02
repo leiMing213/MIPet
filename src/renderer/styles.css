@@ -137,6 +137,32 @@ html.pet-mode,html.pet-mode body,html.pet-mode #root{width:100%;height:100%;min-
 .dashboard-toast{position:fixed;right:26px;bottom:24px;z-index:30;padding:11px 15px;border-radius:10px;background:#25322c;color:#fff;box-shadow:0 10px 28px rgba(28,36,32,.22);font-size:11px;animation:toast-in .2s ease-out}
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
+/* PetSprite - image-based pet rendering */
+.pet-sprite-simple-container,.pet-sprite-sheet-container{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.pet-sprite-simple-shadow,.pet-sprite-sheet-shadow{position:absolute;bottom:12%;width:55%;height:12%;border-radius:50%;background:rgba(38,56,78,.18);filter:blur(8px);transition:transform .3s}
+.pet-sprite-simple-img{position:relative;max-width:100%;max-height:100%;object-fit:contain;pointer-events:none;transition:filter .3s;will-change:transform}
+.pet-sprite-sheet-viewport{position:relative;max-width:100%;max-height:100%;pointer-events:none;overflow:hidden;flex:0 0 auto}
+.pet-sprite-sheet-base{display:block;position:absolute;left:0;top:0;pointer-events:none;user-select:none;-webkit-user-drag:none}
+.pet-sprite-sheet-overlay{position:absolute;overflow:hidden;pointer-events:none}
+.pet-sprite-sheet-image{display:block;max-width:none;max-height:none;pointer-events:none;user-select:none;-webkit-user-drag:none;will-change:transform}
+.desktop-pet-character .pet-sprite-simple-container,.desktop-pet-character .pet-sprite-sheet-container{width:250px;height:250px}
+.sidebar-avatar .pet-sprite-simple-container,.sidebar-avatar .pet-sprite-sheet-container{width:42px;height:42px}
+.sidebar-avatar .pet-sprite-simple-img{width:100%;height:100%;border-radius:10px}
+.sidebar-avatar .pet-sprite-sheet-viewport{width:100%;max-height:100%;border-radius:10px}
+.sidebar-avatar .pet-sprite-simple-shadow,.sidebar-avatar .pet-sprite-sheet-shadow{display:none}
+.summary-pet .pet-sprite-simple-container,.summary-pet .pet-sprite-sheet-container{width:100%;height:100%}
+.summary-pet .pet-sprite-simple-img{max-width:190px;max-height:190px;filter:drop-shadow(0 18px 15px rgba(46,59,52,.18))}
+.summary-pet .pet-sprite-sheet-viewport{max-width:190px;max-height:190px;filter:drop-shadow(0 18px 15px rgba(46,59,52,.18))}
+.profile-portrait .pet-sprite-simple-container,.profile-portrait .pet-sprite-sheet-container{width:min(320px,86%);height:280px}
+.profile-portrait .pet-sprite-simple-img{filter:drop-shadow(0 20px 15px rgba(44,57,50,.16))}
+.profile-portrait .pet-sprite-sheet-viewport{filter:drop-shadow(0 20px 15px rgba(44,57,50,.16))}
+.conversation-pet-avatar .pet-sprite-simple-container,.conversation-pet-avatar .pet-sprite-sheet-container{width:44px;height:44px}
+.conversation-pet-avatar .pet-sprite-simple-img{width:100%;height:100%;border-radius:10px}
+.conversation-pet-avatar .pet-sprite-sheet-viewport{width:100%;max-height:100%;border-radius:10px}
+.conversation-pet-avatar .pet-sprite-simple-shadow,.conversation-pet-avatar .pet-sprite-sheet-shadow{display:none}
+.onboarding-3d-preview .pet-sprite-simple-container,.generated-pet .pet-sprite-simple-container,.onboarding-3d-preview .pet-sprite-sheet-container,.generated-pet .pet-sprite-sheet-container{width:100%;height:100%}
+.appearance-preview-stage .pet-sprite-simple-container,.appearance-preview-stage .pet-sprite-sheet-container{width:100%;height:100%;min-height:330px}
+
 @media (max-width:1000px){.dashboard-shell{grid-template-columns:190px minmax(0,1fr)}.dashboard-content{padding-left:24px;padding-right:24px}.dashboard-header{padding-left:24px;padding-right:24px}.pet-summary-card{grid-column:span 7}.state-card{grid-column:span 5}.care-card,.growth-card{grid-column:span 6}.care-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* MBTI matching and pet personality test */
@@ -224,6 +250,14 @@ html.pet-mode,html.pet-mode body,html.pet-mode #root{width:100%;height:100%;min-
 .appearance-preview-panel,.appearance-choice-panel{border:1px solid #dfe7e4;border-radius:14px;background:#fbfaf7;box-shadow:0 12px 34px rgba(35,52,45,.07)}
 .appearance-preview-panel{position:relative;overflow:hidden;display:grid;grid-template-rows:minmax(300px,1fr) auto;background:color-mix(in srgb,var(--pet-accent) 8%,#fbfaf7)}
 .appearance-preview-stage{position:relative;min-height:330px}.appearance-preview-stage .pet-3d-canvas{inset:-8px 0 -4px;width:100%;height:calc(100% + 12px);filter:drop-shadow(0 18px 14px rgba(31,42,39,.18))}
+.appearance-preview-stage.is-blocked{display:grid;place-items:center;padding:24px}
+.appearance-loading{display:grid;justify-items:center;gap:10px;max-width:320px;text-align:center;color:#566963}
+.appearance-loading strong{font-size:18px;color:#24332d}
+.appearance-loading span{font-size:12px;line-height:1.7}
+.appearance-loading-orb{width:92px;height:92px;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--pet-accent) 28%,#fff) 0,color-mix(in srgb,var(--pet-accent) 10%,#fff) 45%,transparent 72%);position:relative;animation:appearance-pulse 1.6s ease-in-out infinite}
+.appearance-loading-orb::after{content:'';position:absolute;inset:24px;border-radius:50%;border:3px solid color-mix(in srgb,var(--pet-accent) 55%,#fff);border-top-color:transparent;animation:appearance-spin 1s linear infinite}
+@keyframes appearance-pulse{50%{transform:scale(1.06);opacity:.82}}
+@keyframes appearance-spin{to{transform:rotate(360deg)}}
 .appearance-preview-meta{position:relative;z-index:3;display:grid;gap:5px;padding:18px 22px;border-top:1px solid color-mix(in srgb,var(--pet-accent) 18%,#dfe7e4);background:rgba(255,255,255,.68)}
 .appearance-preview-meta span{width:max-content;padding:4px 8px;border-radius:7px;background:color-mix(in srgb,var(--pet-accent) 14%,#fff);color:var(--pet-accent);font-size:10px;font-weight:900}.appearance-preview-meta strong{font-size:17px;color:#263830}.appearance-preview-meta small{color:#74817b;font-size:11px}
 .appearance-choice-panel{display:grid;align-content:start;gap:12px;padding:18px}
