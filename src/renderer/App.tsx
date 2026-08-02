@@ -600,7 +600,7 @@ function Onboarding({ existing, onComplete, onCancel }: {
       return
     }
     if (step === 4 && appearanceMode === 'custom' && !hasGeneratedAppearance) {
-      setAppearanceStatus(referenceImage ? '已上传参考图，正在等待生成结果，请耐心等待' : '请先上传一张参考图片再生成形象')
+      setAppearanceStatus(referenceImage ? '已上传参考图，请先点击“开始生成形象”，生成完成后再继续' : '请先上传一张参考图片，再开始生成形象')
       return
     }
     setOwnerError('')
@@ -770,6 +770,11 @@ function Onboarding({ existing, onComplete, onCancel }: {
     }
   }
 
+  function startCustomAppearanceGeneration() {
+    if (!referenceImage || isAppearanceGenerating || isSpriteGenerating) return
+    void requestAppearance(referenceImage, selected)
+  }
+
   function handlePhoto(file?: File) {
     if (!file) return
     const reader = new FileReader()
@@ -777,7 +782,10 @@ function Onboarding({ existing, onComplete, onCancel }: {
       const dataUrl = String(reader.result)
       setReferenceImage(dataUrl)
       setAppearanceMode('custom')
-      void requestAppearance(dataUrl, selected)
+      setCustomImage(undefined)
+      setCustomAnimation(undefined)
+      setIsAppearanceGenerating(false)
+      setAppearanceStatus('参考图已上传，确认无误后点击“开始生成形象”')
     }
     reader.readAsDataURL(file)
   }
@@ -1052,9 +1060,9 @@ function Onboarding({ existing, onComplete, onCancel }: {
                 <div className="appearance-preview-meta"><span>{species === 'cat' ? '猫咪' : '狗狗'}</span><strong>{selected.type} · {selected.name}</strong><small>{selectedGroup.name}代表色 · 专属装饰</small></div>
               </section>
               <section className="appearance-choice-panel">
-                <button className={`appearance-option-row ${appearanceMode === 'default' ? 'selected' : ''}`} type="button" onClick={() => { if (appearanceMode !== 'default') { setAppearanceMode('default'); setCustomImage(undefined); setCustomAnimation(undefined); setReferenceImage(undefined); void requestAppearance(null, selected) } }}>
+                <button className={`appearance-option-row ${appearanceMode === 'default' ? 'selected' : ''}`} type="button" onClick={() => { setAppearanceMode('default'); setCustomImage(undefined); setCustomAnimation(undefined); setReferenceImage(undefined) }}>
                   <span className="appearance-option-icon"><Sparkles size={19} /></span>
-                  <div><strong>AI 生成形象</strong><small>根据物种和性格自动生成可爱桌宠图片</small></div>
+                  <div><strong>使用默认形象</strong><small>直接按当前人格生成桌宠外观和动作</small></div>
                   {appearanceMode === 'default' && <Check size={18} />}
                 </button>
                 <button className={`appearance-option-row ${appearanceMode === 'custom' ? 'selected' : ''}`} type="button" onClick={() => setAppearanceMode('custom')}>
@@ -1063,26 +1071,36 @@ function Onboarding({ existing, onComplete, onCancel }: {
                   {appearanceMode === 'custom' && <Check size={18} />}
                 </button>
                 {appearanceMode === 'custom' && (
-                  <label
-                    className="dropzone"
-                    onDragOver={event => { event.preventDefault(); event.currentTarget.classList.add('drag-over') }}
-                    onDragLeave={event => { event.preventDefault(); event.currentTarget.classList.remove('drag-over') }}
-                    onDrop={event => { event.preventDefault(); event.currentTarget.classList.remove('drag-over'); handlePhoto(event.dataTransfer.files?.[0]) }}
-                  >
-                    <input type="file" accept="image/*" onChange={event => handlePhoto(event.target.files?.[0])} />
-                    {referenceImage ? (
-                      <div className="dropzone-preview">
-                        <img src={referenceImage} alt="宠物照片" />
-                        <span>点击或拖拽更换照片</span>
-                      </div>
-                    ) : (
-                      <div className="dropzone-empty">
-                        <ImagePlus size={32} />
-                        <strong>拖拽照片到这里</strong>
-                        <small>或点击选择文件</small>
-                      </div>
-                    )}
-                  </label>
+                  <>
+                    <label
+                      className="dropzone"
+                      onDragOver={event => { event.preventDefault(); event.currentTarget.classList.add('drag-over') }}
+                      onDragLeave={event => { event.preventDefault(); event.currentTarget.classList.remove('drag-over') }}
+                      onDrop={event => { event.preventDefault(); event.currentTarget.classList.remove('drag-over'); handlePhoto(event.dataTransfer.files?.[0]) }}
+                    >
+                      <input type="file" accept="image/*" onChange={event => handlePhoto(event.target.files?.[0])} />
+                      {referenceImage ? (
+                        <div className="dropzone-preview">
+                          <img src={referenceImage} alt="宠物照片" />
+                          <span>点击或拖拽更换照片</span>
+                        </div>
+                      ) : (
+                        <div className="dropzone-empty">
+                          <ImagePlus size={32} />
+                          <strong>拖拽照片到这里</strong>
+                          <small>或点击选择文件</small>
+                        </div>
+                      )}
+                    </label>
+                    <button
+                      className="primary-button full"
+                      type="button"
+                      onClick={startCustomAppearanceGeneration}
+                      disabled={!referenceImage || isAppearanceGenerating || isSpriteGenerating}
+                    >
+                      {isAppearanceGenerating ? '形象生成中…' : '开始生成形象'}
+                    </button>
+                  </>
                 )}
                 {appearanceStatus && <div className="appearance-status-line">{appearanceStatus}</div>}
               </section>
